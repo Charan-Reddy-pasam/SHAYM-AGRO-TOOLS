@@ -1,0 +1,136 @@
+.brand-slider-section {
+  background: #fff;
+  border-top: 1px solid #efefef;
+  border-bottom: 1px solid #efefef;
+  padding: 48px 0 40px;
+  overflow: hidden;
+}
+
+/* ── Header ── */
+.brand-slider-header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  max-width: 1440px;
+  margin: 0 auto 36px;
+  padding: 0 40px;
+}
+
+.brand-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: #aaa;
+  white-space: nowrap;
+  font-family: 'Poppins', sans-serif;
+  text-transform: uppercase;
+}
+
+.brand-divider {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, #e0e0e0, transparent);
+}
+
+/* ── Scrolling Track ── */
+.brand-track-wrapper {
+  overflow: hidden;
+  position: relative;
+  /* Fade edges */
+  mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+}
+
+.brand-track {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: max-content;
+  animation: brandScroll 35s linear infinite;
+}
+
+.brand-track:hover {
+  animation-play-state: paused;
+}
+
+@keyframes brandScroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* ── Individual Card ── */
+.brand-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 40px;
+  cursor: pointer;
+  transition: transform 0.3s ease;
+}
+
+.brand-card:hover {
+  transform: translateY(-4px);
+}
+
+/* ── Logo Wrapper ── */
+.brand-logo-wrap {
+  width: 140px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.brand-logo-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  filter: grayscale(100%) opacity(0.45);
+  transition: filter 0.4s ease, transform 0.4s ease;
+}
+
+.brand-card:hover .brand-logo-img {
+  filter: grayscale(0%) opacity(1);
+  transform: scale(1.08);
+}
+
+/* Fallback text if img fails */
+.brand-fallback {
+  display: none;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  font-family: 'Poppins', sans-serif;
+  text-transform: uppercase;
+  opacity: 0.45;
+  transition: opacity 0.4s ease;
+}
+
+.brand-card:hover .brand-fallback {
+  opacity: 1;
+}
+
+/* ── Brand Name ── */
+.brand-name {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #bbb;
+  text-transform: uppercase;
+  font-family: 'Poppins', sans-serif;
+  transition: color 0.3s ease;
+}
+
+.brand-card:hover .brand-name {
+  color: #6dbd2f;
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .brand-logo-wrap { width: 100px; height: 48px; }
+  .brand-card { padding: 12px 24px; }
+  .brand-slider-header { padding: 0 20px; }
+}

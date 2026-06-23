@@ -1,0 +1,97 @@
+/* ═══════════════════════════════════════════════
+   SHYAM AGRO TOOLS – Admin Layout
+   Hover-expand sidebar: 64px collapsed → 260px expanded
+   ═══════════════════════════════════════════════ */
+
+:root {
+  --sidebar-collapsed: 64px;
+  --sidebar-expanded:  260px;
+  --sidebar-duration:  0.28s;
+  --topbar-height:     64px;
+}
+
+/* ── Grid Layout ── */
+.admin-layout {
+  display: grid;
+  grid-template-rows: var(--topbar-height) 1fr;
+  grid-template-areas:
+    "topbar"
+    "main";
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: #f8f9fc;
+  font-family: 'Inter', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  /* Sidebar handled via position:fixed */
+}
+
+/* ── Fixed Sidebar ── */
+.admin-sidebar-area {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  width: var(--sidebar-collapsed);
+  z-index: 200;
+  transition: width var(--sidebar-duration) cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+/* Expanded state */
+.admin-layout.sidebar-open .admin-sidebar-area {
+  width: var(--sidebar-expanded);
+  box-shadow: 4px 0 32px rgba(0, 0, 0, 0.35);
+}
+
+/* ── Topbar – shifts with sidebar ── */
+.admin-topbar-area {
+  grid-area: topbar;
+  position: fixed;
+  top: 0;
+  left: var(--sidebar-collapsed);
+  right: 0;
+  height: var(--topbar-height);
+  z-index: 190;
+  transition: left var(--sidebar-duration) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.admin-layout.sidebar-open .admin-topbar-area {
+  left: var(--sidebar-expanded);
+}
+
+/* ── Main Content – shifts with sidebar ── */
+.admin-main-content {
+  grid-area: main;
+  position: fixed;
+  top: var(--topbar-height);
+  left: var(--sidebar-collapsed);
+  right: 0;
+  bottom: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2rem 2.2rem;
+  scroll-behavior: smooth;
+  background: #f8f9fc;
+  transition: left var(--sidebar-duration) cubic-bezier(0.4, 0, 0.2, 1);
+  /* Hide scrollbar */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.admin-main-content::-webkit-scrollbar {
+  display: none;
+}
+
+.admin-layout.sidebar-open .admin-main-content {
+  left: var(--sidebar-expanded);
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  :root {
+    --sidebar-collapsed: 0px;
+  }
+  .admin-main-content {
+    padding: 1.2rem;
+  }
+}
