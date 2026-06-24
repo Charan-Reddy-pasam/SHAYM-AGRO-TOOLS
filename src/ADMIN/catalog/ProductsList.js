@@ -1,94 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, Check, Edit, Filter, Package, Plus, Search, Star, Trash2 } from 'lucide-react';
 import {
   getCategoryName,
   getSubcategoryName,
 } from './catalogStore';
-import { fetchCategories, fetchSubcategories } from './catalogApi';
+import { deleteProduct as deleteProductApi, fetchCategories, fetchProducts, fetchSubcategories } from './catalogApi';
 import './adminModule.css';
 
-const PRODUCTS_API_URL = 'https://excretory-powdering-mocker.ngrok-free.dev/api/Catalog/products';
-
 const formatCurrency = (value) => `INR ${Number(value || 0).toLocaleString('en-IN')}`;
-
-const getValue = (source, keys, fallback = '') => {
-  for (const key of keys) {
-    if (source?.[key] !== undefined && source?.[key] !== null) {
-      return source[key];
-    }
-  }
-
-  return fallback;
-};
-
-const asString = (value, fallback = '') => (value === undefined || value === null ? fallback : String(value));
-
-const asNumber = (value, fallback = 0) => {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : fallback;
-};
-
-const findByNameOrId = (items, value, fallback = '') => {
-  const searchValue = asString(value).trim().toLowerCase();
-  if (!searchValue) return fallback;
-
-  return (
-    items.find((item) => item.id?.toLowerCase() === searchValue || item.name?.toLowerCase() === searchValue)?.id ||
-    fallback
-  );
-};
-
-const normalizeApiProduct = (product, categories = [], subcategories = []) => {
-  const id = getValue(product, ['id', 'Id', 'productId', 'ProductId']);
-  const categoryName = asString(getValue(product, ['category', 'Category']));
-  const subcategoryName = asString(getValue(product, ['subCategory', 'SubCategory', 'subcategory']));
-  const categoryId = getValue(product, ['categoryId', 'CategoryId']) || findByNameOrId(categories, categoryName, categories[0]?.id || '');
-  const subcategoryId =
-    getValue(product, ['subcategoryId', 'subCategoryId', 'SubCategoryId']) ||
-    findByNameOrId(subcategories, subcategoryName, subcategories[0]?.id || '');
-
-  const sellingPrice = asNumber(getValue(product, ['sellingPrice', 'SellingPrice', 'price', 'Price']));
-  const basePrice = asNumber(getValue(product, ['basePrice', 'BasePrice', 'mrp', 'MRP']), sellingPrice);
-
-  return {
-    id: asString(id),
-    name: asString(getValue(product, ['name', 'productName', 'ProductName'])),
-    sku: asString(getValue(product, ['sku', 'skuCode', 'SKUCode'])),
-    brand: asString(getValue(product, ['brand', 'Brand'], 'Shyam Agro Tools')),
-    categoryId,
-    subcategoryId,
-    mrp: basePrice,
-    price: sellingPrice,
-    stock: asNumber(getValue(product, ['stock', 'Stock'])),
-    status: asString(getValue(product, ['status', 'stockStatus', 'StockStatus'], 'In Stock')),
-    specifications: {
-      weight: asString(getValue(product, ['weight', 'Weight'])),
-    },
-    weight: asString(getValue(product, ['weight', 'Weight'])),
-    rating: asNumber(getValue(product, ['rating', 'averageRating', 'AverageRating'])),
-    totalReviews: asNumber(getValue(product, ['totalReviews', 'TotalReviews'])),
-  };
-};
-
-const fetchProducts = async (categories, subcategories) => {
-  const response = await axios.get(PRODUCTS_API_URL, { 
-    timeout: 30000,
-    headers: { 
-      'ngrok-skip-browser-warning': 'true',
-      'Accept': 'application/json'
-    }
-  });
-  const data = Array.isArray(response.data) ? response.data : response.data?.data || response.data?.products || [];
-  return data.map((product) => normalizeApiProduct(product, categories, subcategories));
-};
-
-const deleteProductById = (id) =>
-  axios.delete(`${PRODUCTS_API_URL}/${id}`, {
-    timeout: 30000,
-    headers: { 'ngrok-skip-browser-warning': 'true' }
-  });
 
 const getStatusClass = (status) => {
   if (status === 'In Stock') return 'catalog-badge--stock';
@@ -137,7 +57,7 @@ const ProductsList = () => {
         if (isMounted) setProducts(apiProducts);
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error.response?.data?.message || error.message || 'Unable to load products.');
+          setErrorMessage(error.message || 'Unable to load products.');
         }
       } finally {
         if (isMounted) setIsLoading(false);
@@ -149,7 +69,7 @@ const ProductsList = () => {
     return () => {
       isMounted = false;
     };
-  }, [categories, subcategories]);
+  }, []);
 
   const filteredProducts = useMemo(() => {
     const query = searchTerm.toLowerCase();
@@ -175,10 +95,10 @@ const ProductsList = () => {
     setErrorMessage('');
 
     try {
-      await deleteProductById(id);
+      await deleteProductApi(id);
       setProducts((current) => current.filter((product) => product.id !== id));
     } catch (error) {
-      setErrorMessage(error.response?.data?.message || error.message || 'Unable to delete product.');
+      setErrorMessage(error.message || 'Unable to delete product.');
     } finally {
       setIsDeletingId('');
     }

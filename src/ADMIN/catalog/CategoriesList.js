@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Edit, Layers, Plus, Search, Trash2, X } from 'lucide-react';
-import { deleteCategory as deleteCategoryApi, fetchCategories, saveCategory } from './catalogApi';
+import { deleteCategory as deleteCategoryApi, fetchCategories, fetchProducts, saveCategory } from './catalogApi';
 import './adminModule.css';
 
 const CategoriesList = () => {
@@ -19,21 +19,10 @@ const CategoriesList = () => {
         setIsLoading(true);
         setError('');
 
-        const [loadedCategories, rawProductsRes] = await Promise.all([
+        const [loadedCategories, loadedProducts] = await Promise.all([
           fetchCategories(),
-          fetch('https://excretory-powdering-mocker.ngrok-free.dev/api/Catalog/products', {
-            headers: { 'ngrok-skip-browser-warning': 'true' }
-          }).then(r => r.json()).catch(() => [])
+          fetchProducts().catch(() => [])
         ]);
-
-        let loadedProducts = [];
-        if (Array.isArray(rawProductsRes)) {
-          loadedProducts = rawProductsRes;
-        } else if (rawProductsRes && Array.isArray(rawProductsRes.data)) {
-          loadedProducts = rawProductsRes.data;
-        } else if (rawProductsRes && Array.isArray(rawProductsRes.products)) {
-          loadedProducts = rawProductsRes.products;
-        }
 
         const normalizedProducts = loadedProducts.map(p => ({
           id: String(p.id || p.productId || p.Id || p.ProductId || ''),

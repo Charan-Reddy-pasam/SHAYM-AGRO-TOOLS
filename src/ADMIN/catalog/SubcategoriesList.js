@@ -5,6 +5,7 @@ import { getCategoryName } from './catalogStore';
 import {
   deleteSubcategory as deleteSubcategoryApi,
   fetchCategories,
+  fetchProducts,
   fetchSubcategories,
   saveSubcategory,
 } from './catalogApi';
@@ -27,22 +28,11 @@ const SubcategoriesList = () => {
         setIsLoading(true);
         setError('');
 
-        const [loadedCategories, rawSubcategories, rawProductsRes] = await Promise.all([
+        const [loadedCategories, rawSubcategories, loadedProducts] = await Promise.all([
           fetchCategories(),
           fetchSubcategories().catch(() => []),
-          fetch('https://excretory-powdering-mocker.ngrok-free.dev/api/Catalog/products', {
-            headers: { 'ngrok-skip-browser-warning': 'true' }
-          }).then(r => r.json()).catch(() => [])
+          fetchProducts().catch(() => [])
         ]);
-
-        let loadedProducts = [];
-        if (Array.isArray(rawProductsRes)) {
-          loadedProducts = rawProductsRes;
-        } else if (rawProductsRes && Array.isArray(rawProductsRes.data)) {
-          loadedProducts = rawProductsRes.data;
-        } else if (rawProductsRes && Array.isArray(rawProductsRes.products)) {
-          loadedProducts = rawProductsRes.products;
-        }
 
         const normalizedProducts = loadedProducts.map(p => ({
           id: String(p.id || p.productId || p.Id || p.ProductId || ''),

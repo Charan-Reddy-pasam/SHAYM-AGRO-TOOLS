@@ -18,11 +18,11 @@ import {
   getCategoryName,
   getSubcategoryName,
 } from './catalogStore';
-import { fetchCategories, fetchSubcategories } from './catalogApi';
+import { API_ROOT, fetchCategories, fetchSubcategories } from './catalogApi';
 import './adminModule.css';
 import './ProductsForm.css';
 
-const PRODUCTS_API_URL = 'https://excretory-powdering-mocker.ngrok-free.dev/api/Catalog/products';
+const PRODUCTS_API_URL = `${API_ROOT}/products`;
 
 const createReview = () => ({
   customer: '',

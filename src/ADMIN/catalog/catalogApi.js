@@ -1,5 +1,5 @@
-const API_ROOT = 'https://excretory-powdering-mocker.ngrok-free.dev/api/Catalog';
-const ASSET_ROOT = 'https://excretory-powdering-mocker.ngrok-free.dev';
+export const API_ROOT = 'https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Catalog';
+const ASSET_ROOT = 'https://wildlife-unwieldy-devotee.ngrok-free.dev';
 const SUBCATEGORY_CACHE_KEY = 'sat_api_subcategories_cache';
 
 const isStorageAvailable = () => typeof window !== 'undefined' && window.localStorage;
@@ -61,12 +61,13 @@ const request = async (url, options = {}) => {
   return response.json();
 };
 
-const normalizeStatus = (status) => {
+const normalizeStatus = (status, isActive = true) => {
+  if (typeof isActive === 'boolean') return isActive ? 'Active' : 'Inactive';
   const value = String(status || 'ACTIVE').toLowerCase();
-  return value === 'inactive' ? 'Inactive' : 'Active';
+  return value === 'inactive' || value === 'false' ? 'Inactive' : 'Active';
 };
 
-const toApiStatus = (status) => String(status || 'Active').toUpperCase();
+const toApiIsActive = (status) => String(status || 'Active').toLowerCase() !== 'inactive';
 
 const unwrapList = (data) => {
   if (Array.isArray(data)) return data;
@@ -83,27 +84,27 @@ const resolveImageUrl = (imageUrl) => {
 
 export const mapCategoryFromApi = (category = {}) => ({
   id: String(category.id ?? ''),
-  code: category.categoryCode || '',
-  name: category.categoryName || '',
+  code: category.categoryCode || category.id || '',
+  name: category.name || category.categoryName || category.categoryName || '',
   slug: category.slug || '',
   description: category.description || '',
-  status: normalizeStatus(category.status),
+  status: normalizeStatus(category.status, category.isActive),
   displayOrder: category.displayOrder ?? '',
   metaTitle: category.metaTitle || '',
   metaDescription: category.metaDescription || '',
   image: resolveImageUrl(category.imageUrl),
   imageUrl: category.imageUrl || '',
-  subCategories: category.subCategories || [],
+  subCategories: category.subCategories || category.subcategories || [],
   products: category.products || [],
 });
 
 export const mapSubcategoryFromApi = (subcategory = {}) => ({
   id: String(subcategory.id ?? ''),
   categoryId: String(subcategory.categoryId ?? ''),
-  name: subcategory.subCategoryName || subcategory.subcategoryName || '',
+  name: subcategory.name || subcategory.subCategoryName || subcategory.subcategoryName || subcategory.subcategory_name || '',
   slug: subcategory.slug || '',
   description: subcategory.description || '',
-  status: normalizeStatus(subcategory.status),
+  status: normalizeStatus(subcategory.status, subcategory.isActive),
   displayOrder: subcategory.displayOrder ?? '',
   image: resolveImageUrl(subcategory.imageUrl),
   imageUrl: subcategory.imageUrl || '',
@@ -123,34 +124,53 @@ const subcategoriesFromCategories = (categories) =>
     );
   });
 
-const appendFormValue = (formData, key, value) => {
-  if (value === undefined || value === null || value === '') return;
-  formData.append(key, value);
-};
-
 const categoryFormData = (category) => {
-  const formData = new FormData();
-  appendFormValue(formData, 'CategoryName', category.name);
-  appendFormValue(formData, 'Slug', category.slug);
-  appendFormValue(formData, 'Description', category.description);
-  appendFormValue(formData, 'DisplayOrder', Number(category.displayOrder) || 1);
-  appendFormValue(formData, 'Status', toApiStatus(category.status));
-  appendFormValue(formData, 'MetaTitle', category.metaTitle);
-  appendFormValue(formData, 'MetaDescription', category.metaDescription);
-  if (category.imageFile) formData.append('Image', category.imageFile);
-  return formData;
+  return JSON.stringify({
+    name: category.name,
+    description: category.description,
+    imageUrl: category.imageUrl || category.image || '',
+    isActive: toApiIsActive(category.status),
+  });
 };
 
 const subcategoryFormData = (subcategory) => {
-  const formData = new FormData();
-  appendFormValue(formData, 'CategoryId', Number(subcategory.categoryId));
-  appendFormValue(formData, 'SubCategoryName', subcategory.name);
-  appendFormValue(formData, 'Slug', subcategory.slug);
-  appendFormValue(formData, 'Description', subcategory.description);
-  appendFormValue(formData, 'DisplayOrder', Number(subcategory.displayOrder) || 1);
-  appendFormValue(formData, 'Status', toApiStatus(subcategory.status));
-  if (subcategory.imageFile) formData.append('Image', subcategory.imageFile);
-  return formData;
+  return JSON.stringify({
+    categoryId: Number(subcategory.categoryId),
+    name: subcategory.name,
+    description: subcategory.description,
+  });
+};
+
+export const mapProductFromApi = (product = {}, categories = [], subcategories = []) => {
+  const subcategory = product.subcategory || product.subCategory || {};
+  const subcategoryId = String(product.subcategoryId ?? product.subCategoryId ?? subcategory.id ?? '');
+  const categoryId = String(product.categoryId ?? subcategory.categoryId ?? '');
+  const reviews = Array.isArray(product.reviews) ? product.reviews : [];
+  const media = Array.isArray(product.media) ? product.media : [];
+  const stock = Number(product.stockQuantity ?? product.stock ?? 0);
+
+  return {
+    id: String(product.id ?? ''),
+    name: product.name || product.productName || product.product_name || '',
+    sku: product.sku || '',
+    brand: product.brand?.name || product.brand?.brandName || product.brand || 'Shyam Agro Tools',
+    categoryId: categoryId || subcategories.find((item) => item.id === subcategoryId)?.categoryId || categories[0]?.id || '',
+    subcategoryId: subcategoryId || subcategories[0]?.id || '',
+    mrp: Number(product.mrp ?? product.basePrice ?? product.price ?? 0),
+    price: Number(product.price ?? 0),
+    stock,
+    status: product.isActive === false ? 'Inactive' : stock > 0 ? 'In Stock' : 'Out of Stock',
+    specifications: {
+      weight: product.weight || '',
+    },
+    weight: product.weight || '',
+    rating: Number(product.rating ?? product.averageRating ?? 0),
+    totalReviews: Number(product.totalReviews ?? reviews.length ?? 0),
+    reviews,
+    image: resolveImageUrl(product.imageUrl || media[0]?.mediaUrl || ''),
+    imageUrl: product.imageUrl || media[0]?.mediaUrl || '',
+    raw: product,
+  };
 };
 
 export const fetchCategories = async () => {
@@ -221,3 +241,15 @@ export const deleteSubcategory = async (id) => {
   await request(`${API_ROOT}/subcategories/${id}`, { method: 'DELETE' });
   removeCachedSubcategory(id);
 };
+
+export const fetchProducts = async (categories = [], subcategories = []) => {
+  const products = await request(`${API_ROOT}/products`);
+  return unwrapList(products).map((product) => mapProductFromApi(product, categories, subcategories));
+};
+
+export const fetchProduct = async (id, categories = [], subcategories = []) => {
+  const product = await request(`${API_ROOT}/products/${id}`);
+  return mapProductFromApi(product, categories, subcategories);
+};
+
+export const deleteProduct = (id) => request(`${API_ROOT}/products/${id}`, { method: 'DELETE' });
