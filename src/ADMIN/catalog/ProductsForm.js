@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -18,11 +17,9 @@ import {
   getCategoryName,
   getSubcategoryName,
 } from './catalogStore';
-import { API_ROOT, fetchCategories, fetchSubcategories } from './catalogApi';
+import { fetchCategories, fetchSubcategories, fetchProduct, saveProduct as saveProductApi } from './catalogApi';
 import './adminModule.css';
 import './ProductsForm.css';
-
-const PRODUCTS_API_URL = `${API_ROOT}/products`;
 
 const createReview = () => ({
   customer: '',
@@ -145,283 +142,10 @@ const calculateSellingPrice = (mrp, discountType, discountValue) => {
 
 const formatCurrency = (value) => `INR ${Number(value || 0).toLocaleString('en-IN')}`;
 
-const getValue = (source, keys, fallback = '') => {
-  for (const key of keys) {
-    if (source?.[key] !== undefined && source?.[key] !== null) {
-      return source[key];
-    }
-  }
 
-  return fallback;
-};
 
-const asString = (value, fallback = '') => (value === undefined || value === null ? fallback : String(value));
 
-const asNumber = (value, fallback = 0) => {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : fallback;
-};
 
-const findByNameOrId = (items, value, fallback = '') => {
-  const searchValue = asString(value).trim().toLowerCase();
-  if (!searchValue) return fallback;
-
-  return (
-    items.find((item) => item.id?.toLowerCase() === searchValue || item.name?.toLowerCase() === searchValue)?.id ||
-    fallback
-  );
-};
-
-const normalizeApiReview = (review) => ({
-  customer: asString(getValue(review, ['customer', 'customerName', 'CustomerName'])),
-  rating: asString(getValue(review, ['rating', 'Rating'], '5')),
-  date: asString(getValue(review, ['date', 'reviewDate', 'ReviewDate', 'dateCreated'])).slice(0, 7),
-  comment: asString(getValue(review, ['comment', 'reviewComment', 'ReviewComment'])),
-  verified: Boolean(getValue(review, ['verified', 'verifiedPurchase', 'VerifiedPurchase'], true)),
-});
-
-const normalizeApiProduct = (product, categories = [], subcategories = []) => {
-  const id = getValue(product, ['id', 'Id', 'productId', 'ProductId']);
-
-  // Brand can be an object { id, name, brandName } or a string
-  let brandName = 'Shyam Agro Tools';
-  const rawBrand = product.brand || product.Brand;
-  if (typeof rawBrand === 'string') {
-    brandName = rawBrand;
-  } else if (rawBrand && typeof rawBrand === 'object') {
-    brandName = rawBrand.name || rawBrand.brandName || rawBrand.brand_name || 'Shyam Agro Tools';
-  }
-
-  // Supplier / manufacturer — from brand object or direct field
-  let supplierName = '';
-  if (typeof rawBrand === 'object' && rawBrand) {
-    supplierName = rawBrand.name || rawBrand.brandName || '';
-  }
-  supplierName = asString(getValue(product, ['supplier', 'manufacturer', 'Manufacturer']) || supplierName);
-
-  // Category info: can come from subcategory.categoryId or direct categoryId
-  const subcategoryObj = product.subcategory || product.subCategory || product.SubCategory;
-  const categoryName = asString(
-    getValue(product, ['category', 'Category']) ||
-    (typeof subcategoryObj === 'object' ? (subcategoryObj?.categoryName || '') : '')
-  );
-  const subcategoryName = asString(
-    typeof subcategoryObj === 'string' ? subcategoryObj :
-    (typeof subcategoryObj === 'object' ? (subcategoryObj?.subcategoryName || subcategoryObj?.name || subcategoryObj?.subcategory_name || '') : '')
-  );
-
-  // Resolve categoryId: from product directly, from subcategory object, or by name lookup
-  let categoryId = getValue(product, ['categoryId', 'CategoryId']) ||
-    (typeof subcategoryObj === 'object' ? asString(subcategoryObj?.categoryId) : '') ||
-    findByNameOrId(categories, categoryName, categories[0]?.id || '');
-  categoryId = asString(categoryId);
-
-  // Resolve subcategoryId
-  let subcategoryId = getValue(product, ['subcategoryId', 'subCategoryId', 'SubCategoryId']) ||
-    findByNameOrId(subcategories, subcategoryName, subcategories[0]?.id || '');
-  subcategoryId = asString(subcategoryId);
-
-  // Pricing
-  const sellingPrice = asNumber(getValue(product, ['sellingPrice', 'SellingPrice', 'price', 'Price']));
-  const basePrice = asNumber(getValue(product, ['basePrice', 'BasePrice', 'mrp', 'MRP']), sellingPrice);
-
-  // Stock: API uses stockQuantity
-  const stock = asNumber(getValue(product, ['stockQuantity', 'stock', 'Stock']));
-
-  // Status: derive from isActive if no explicit status
-  let status = asString(getValue(product, ['status', 'stockStatus', 'StockStatus'], ''));
-  if (!status) {
-    if (product.isActive === false) {
-      status = 'Inactive';
-    } else if (stock > 0) {
-      status = 'In Stock';
-    } else {
-      status = 'Out of Stock';
-    }
-  }
-
-  // Features: API returns [{ featureName, featureValue }] — convert to string array
-  let keyFeatures = getValue(product, ['keyFeatures'], null);
-  if (!keyFeatures) {
-    const rawFeatures = getValue(product, ['features', 'Features'], []);
-    if (Array.isArray(rawFeatures) && rawFeatures.length > 0) {
-      if (typeof rawFeatures[0] === 'string') {
-        keyFeatures = rawFeatures;
-      } else {
-        // Objects like { featureName, featureValue }
-        keyFeatures = rawFeatures.map(f =>
-          f.featureName && f.featureValue
-            ? `${f.featureName}: ${f.featureValue}`
-            : asString(f.featureName || f.featureValue || f.name || f.value || '')
-        );
-      }
-    } else {
-      keyFeatures = [];
-    }
-  }
-
-  // Image: from imageUrl or first media item
-  let image = asString(getValue(product, ['image', 'imageUrl', 'ImageUrl', 'imagePath', 'ImagePath']));
-  if (!image && Array.isArray(product.media) && product.media.length > 0) {
-    image = asString(product.media[0]?.mediaUrl || '');
-  }
-
-  return {
-    id: asString(id),
-    apiId: id,
-    name: asString(getValue(product, ['name', 'productName', 'ProductName', 'product_name'])),
-    sku: asString(getValue(product, ['sku', 'skuCode', 'SKUCode'])),
-    brand: brandName,
-    supplier: supplierName,
-    categoryId,
-    subcategoryId,
-    categoryName,
-    subcategoryName,
-    mrp: basePrice,
-    price: sellingPrice,
-    discountType: asString(getValue(product, ['discountType', 'DiscountType'], 'none')),
-    discountValue: asNumber(getValue(product, ['discountValue', 'discountAmount', 'DiscountAmount'])),
-    stock,
-    status,
-    countryOfOrigin: asString(getValue(product, ['countryOfOrigin', 'CountryOfOrigin'], 'India')),
-    codAvailable: asString(getValue(product, ['codAvailable', 'codAvailability', 'CODAvailability'], 'Yes')),
-    deliveryEstimate: asString(getValue(product, ['deliveryEstimate', 'estimatedDelivery', 'EstimatedDelivery'], '3-7 business days')),
-    returnPolicy: asString(getValue(product, ['returnPolicy', 'deliveryReturn', 'DeliveryReturn'], 'Easy Returns')),
-    shortDescription: asString(getValue(product, ['shortDescription', 'ShortDescription', 'shortDesc', 'description'])),
-    description: asString(getValue(product, ['shortDescription', 'ShortDescription', 'description'])),
-    productDetails: asString(getValue(product, ['productDetails', 'ProductDetails', 'longDesc', 'description'])),
-    packageIncludes: asString(getValue(product, ['packageIncludes', 'PackageIncludes'])),
-    specifications: {
-      weight: asString(getValue(product, ['weight', 'Weight'])),
-      dimensions: asString(getValue(product, ['dimensions', 'Dimensions'])),
-      powerSource: asString(getValue(product, ['powerSource', 'PowerSource'])),
-      material: asString(getValue(product, ['material', 'Material'])),
-      coverage: asString(getValue(product, ['coverage', 'coverageUsage', 'CoverageUsage'])),
-    },
-    keyFeatures,
-    rating: asNumber(getValue(product, ['rating', 'averageRating', 'AverageRating'])),
-    totalReviews: asNumber(getValue(product, ['totalReviews', 'TotalReviews'])),
-    ratingBreakdown: {
-      5: asNumber(getValue(product, ['fiveStar', 'FiveStar'])),
-      4: asNumber(getValue(product, ['fourStar', 'FourStar'])),
-      3: asNumber(getValue(product, ['threeStar', 'ThreeStar'])),
-      2: asNumber(getValue(product, ['twoStar', 'TwoStar'])),
-      1: asNumber(getValue(product, ['oneStar', 'OneStar'])),
-    },
-    reviews: (getValue(product, ['reviews', 'Reviews'], []) || []).map(normalizeApiReview),
-    image,
-  };
-};
-
-const toReviewDate = (date) => {
-  if (!date) return new Date().toISOString();
-  if (/^\d{4}-\d{2}$/.test(date)) return `${date}-01T00:00:00.000Z`;
-  return new Date(date).toISOString();
-};
-
-const buildProductFormData = (product, imageFiles, videoFile, categories = [], subcategories = []) => {
-  const payload = new FormData();
-
-  const append = (key, value) => {
-    if (value === undefined || value === null) return;
-    payload.append(key, value);
-  };
-
-  // Core product fields — use both PascalCase and the API's native field names
-  append('Name', product.name);
-  append('ProductName', product.name);
-  append('SKU', product.sku);
-  append('SKUCode', product.sku);
-  append('Brand', product.brand);
-  append('Manufacturer', product.supplier);
-  append('SubCategoryId', Number(product.subcategoryId) || 0);
-  append('SubcategoryId', Number(product.subcategoryId) || 0);
-  append('Slug', product.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''));
-  append('Description', product.shortDescription || product.description);
-  append('ShortDescription', product.shortDescription);
-  append('ProductDetails', product.productDetails);
-  append('PackageIncludes', product.packageIncludes);
-  append('Weight', product.specifications?.weight);
-  append('Dimensions', product.specifications?.dimensions);
-  append('PowerSource', product.specifications?.powerSource);
-  append('Material', product.specifications?.material);
-  append('CoverageUsage', product.specifications?.coverage);
-  append('Price', Number(product.price) || Number(product.mrp) || 0);
-  append('BasePrice', Number(product.mrp) || 0);
-  append('StockQuantity', Number(product.stock) || 0);
-  append('Stock', Number(product.stock) || 0);
-  append('Unit', product.unit || 'Pieces');
-  append('DiscountType', product.discountType);
-  append('DiscountAmount', Number(product.discountValue) || 0);
-  append('SellingPrice', Number(product.price) || 0);
-  append('StockStatus', product.status);
-  append('IsActive', true);
-  append('AverageRating', Number(product.rating) || 0);
-  append('TotalReviews', Number(product.totalReviews) || 0);
-  append('FiveStar', Number(product.ratingBreakdown?.[5]) || 0);
-  append('FourStar', Number(product.ratingBreakdown?.[4]) || 0);
-  append('ThreeStar', Number(product.ratingBreakdown?.[3]) || 0);
-  append('TwoStar', Number(product.ratingBreakdown?.[2]) || 0);
-  append('OneStar', Number(product.ratingBreakdown?.[1]) || 0);
-  append('CountryOfOrigin', product.countryOfOrigin);
-  append('CODAvailability', product.codAvailable);
-  append('EstimatedDelivery', product.deliveryEstimate);
-  append('DeliveryReturn', product.returnPolicy);
-  append('Status', 'Active');
-
-  product.keyFeatures
-    ?.filter((feature) => feature.trim())
-    .forEach((feature) => payload.append('Features', feature));
-
-  product.reviews
-    ?.filter((review) => review.customer || review.comment)
-    .forEach((review) => {
-      payload.append('Reviews', JSON.stringify({
-        CustomerName: review.customer,
-        Rating: review.rating,
-        ReviewDate: toReviewDate(review.date),
-        ReviewComment: review.comment,
-        VerifiedPurchase: review.verified
-      }));
-    });
-
-  imageFiles.forEach((file) => {
-    payload.append('Images', file);
-  });
-  if (videoFile) {
-    payload.append('Video', videoFile);
-  }
-
-  return payload;
-};
-
-const fetchProductById = async (id, categories, subcategories) => {
-  const response = await axios.get(`${PRODUCTS_API_URL}/${id}`, { 
-    timeout: 30000,
-    headers: { 'ngrok-skip-browser-warning': 'true' }
-  });
-  return normalizeApiProduct(response.data?.data || response.data, categories, subcategories);
-};
-
-const createProduct = async (product, imageFiles, videoFile, categories, subcategories) => {
-  const payload = buildProductFormData(product, imageFiles, videoFile, categories, subcategories);
-  const response = await axios.post(PRODUCTS_API_URL, payload, {
-    timeout: 45000,
-    headers: { 'ngrok-skip-browser-warning': 'true' }
-  });
-
-  return normalizeApiProduct(response.data?.data || response.data || product, categories, subcategories);
-};
-
-const updateProduct = async (id, product, imageFiles, videoFile, categories, subcategories) => {
-  const payload = buildProductFormData(product, imageFiles, videoFile, categories, subcategories);
-  const response = await axios.put(`${PRODUCTS_API_URL}/${id}`, payload, {
-    timeout: 45000,
-    headers: { 'ngrok-skip-browser-warning': 'true' }
-  });
-
-  return normalizeApiProduct(response.data?.data || response.data || { ...product, id }, categories, subcategories);
-};
 
 const ProductsForm = () => {
   const navigate = useNavigate();
@@ -492,7 +216,7 @@ const ProductsForm = () => {
     setIsLoadingProduct(true);
     setErrorMessage('');
 
-    fetchProductById(productId, categories, subcategories)
+    fetchProduct(productId, categories, subcategories)
       .then((product) => {
         if (!isMounted) return;
         setFormData(normalizeProduct(product));
@@ -667,9 +391,7 @@ const ProductsForm = () => {
     setErrorMessage('');
 
     try {
-      const savedProduct = isEditing
-        ? await updateProduct(productId, preparedProduct, imageFiles, videoFile, categories, subcategories)
-        : await createProduct(preparedProduct, imageFiles, videoFile, categories, subcategories);
+      const savedProduct = await saveProductApi(preparedProduct, imageFiles, videoFile);
 
       setFormData(normalizeProduct(savedProduct));
       setImageFiles([]);

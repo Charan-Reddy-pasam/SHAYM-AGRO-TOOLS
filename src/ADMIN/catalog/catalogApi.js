@@ -1,255 +1,358 @@
-export const API_ROOT = 'https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Catalog';
-const ASSET_ROOT = 'https://wildlife-unwieldy-devotee.ngrok-free.dev';
-const SUBCATEGORY_CACHE_KEY = 'sat_api_subcategories_cache';
+import axios from 'axios';
 
-const isStorageAvailable = () => typeof window !== 'undefined' && window.localStorage;
+// ─── Base URL ────────────────────────────────────────────────────────────────
+const BASE_URL = 'https://wildlife-unwieldy-devotee.ngrok-free.dev';
 
-const readCachedSubcategories = () => {
-  if (!isStorageAvailable()) return [];
+// Axios instance — always skip the ngrok browser-warning page
+const api = axios.create({
+  baseURL: BASE_URL,
+  timeout: 15000,
+  headers: {
+    'ngrok-skip-browser-warning': 'true',
+    Accept: 'application/json',
+  },
+});
 
-  try {
-    const cached = window.localStorage.getItem(SUBCATEGORY_CACHE_KEY);
-    const parsed = cached ? JSON.parse(cached) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    return [];
-  }
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Resolve a relative image path to a full URL */
+const resolveImageUrl = (url) => {
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
 };
 
-const writeCachedSubcategories = (subcategories) => {
-  if (!isStorageAvailable()) return;
-  window.localStorage.setItem(SUBCATEGORY_CACHE_KEY, JSON.stringify(subcategories));
-};
-
-const upsertCachedSubcategory = (subcategory) => {
-  const cachedSubcategories = readCachedSubcategories();
-  const exists = cachedSubcategories.some((item) => item.id === subcategory.id);
-  const updated = exists
-    ? cachedSubcategories.map((item) => (item.id === subcategory.id ? subcategory : item))
-    : [...cachedSubcategories, subcategory];
-  writeCachedSubcategories(updated);
-};
-
-const removeCachedSubcategory = (id) => {
-  const updated = readCachedSubcategories().filter((subcategory) => subcategory.id !== String(id));
-  writeCachedSubcategories(updated);
-};
-
-const isSerializationCycleError = (message) =>
-  message.includes('possible object cycle') || message.includes('SerializerCycleDetected');
-
-const request = async (url, options = {}) => {
-  const headers = options.body instanceof FormData
-    ? { ...options.headers, 'ngrok-skip-browser-warning': 'true' }
-    : { 'Content-Type': 'application/json', ...(options.headers || {}), 'ngrok-skip-browser-warning': 'true' };
-
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
-
-  if (!response.ok) {
-    const message = await response.text().catch(() => '');
-    if (isSerializationCycleError(message)) {
-      throw new Error('Backend serialization error: the API is returning a circular Category/SubCategories object graph.');
-    }
-    throw new Error(message || `Request failed with status ${response.status}`);
-  }
-
-  const contentType = response.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) return null;
-  return response.json();
-};
-
-const normalizeStatus = (status, isActive = true) => {
-  if (typeof isActive === 'boolean') return isActive ? 'Active' : 'Inactive';
-  const value = String(status || 'ACTIVE').toLowerCase();
-  return value === 'inactive' || value === 'false' ? 'Inactive' : 'Active';
-};
-
-const toApiIsActive = (status) => String(status || 'Active').toLowerCase() !== 'inactive';
-
-const unwrapList = (data) => {
+/** Extract an array from various API response shapes */
+const unwrapList = (response) => {
+  const data = response?.data;
   if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.data)) return data.data;
   if (Array.isArray(data?.value)) return data.value;
   if (Array.isArray(data?.Value)) return data.Value;
+  if (Array.isArray(data?.items)) return data.items;
   return [];
 };
 
-const resolveImageUrl = (imageUrl) => {
-  if (!imageUrl) return '';
-  if (/^https?:\/\//i.test(imageUrl)) return imageUrl;
-  return `${ASSET_ROOT}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
+/** Extract a single object from an API response */
+const unwrapItem = (response) => {
+  const data = response?.data;
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    return data?.data ?? data;
+  }
+  return data ?? {};
 };
 
-export const mapCategoryFromApi = (category = {}) => ({
-  id: String(category.id ?? ''),
-  code: category.categoryCode || category.id || '',
-  name: category.name || category.categoryName || category.categoryName || '',
-  slug: category.slug || '',
-  description: category.description || '',
-  status: normalizeStatus(category.status, category.isActive),
-  displayOrder: category.displayOrder ?? '',
-  metaTitle: category.metaTitle || '',
-  metaDescription: category.metaDescription || '',
-  image: resolveImageUrl(category.imageUrl),
-  imageUrl: category.imageUrl || '',
-  subCategories: category.subCategories || category.subcategories || [],
-  products: category.products || [],
+// ─── Mappers ─────────────────────────────────────────────────────────────────
+
+export const mapCategoryFromApi = (raw = {}) => ({
+  id: String(raw.id ?? raw.categoryId ?? ''),
+  name: raw.name || raw.categoryName || '',
+  slug: raw.slug || '',
+  description: raw.description || '',
+  status: raw.isActive === false ? 'Inactive' : 'Active',
+  displayOrder: raw.displayOrder ?? '',
+  metaTitle: raw.metaTitle || `${raw.name || ''} | Shyam Agro`,
+  metaDescription: raw.metaDescription || raw.description || '',
+  image: resolveImageUrl(raw.imageUrl || raw.image),
+  imageUrl: raw.imageUrl || '',
+  subCategories: raw.subCategories || raw.subcategories || [],
+  products: raw.products || [],
+  code: raw.categoryCode || String(raw.id || ''),
 });
 
-export const mapSubcategoryFromApi = (subcategory = {}) => ({
-  id: String(subcategory.id ?? ''),
-  categoryId: String(subcategory.categoryId ?? ''),
-  name: subcategory.name || subcategory.subCategoryName || subcategory.subcategoryName || subcategory.subcategory_name || '',
-  slug: subcategory.slug || '',
-  description: subcategory.description || '',
-  status: normalizeStatus(subcategory.status, subcategory.isActive),
-  displayOrder: subcategory.displayOrder ?? '',
-  image: resolveImageUrl(subcategory.imageUrl),
-  imageUrl: subcategory.imageUrl || '',
-  categoryName: subcategory.categoryName || subcategory.category?.categoryName || '',
-  products: subcategory.products || [],
+export const mapSubcategoryFromApi = (raw = {}) => ({
+  id: String(raw.id ?? raw.subcategoryId ?? ''),
+  categoryId: String(raw.categoryId ?? ''),
+  name: raw.name || raw.subcategoryName || '',
+  slug: raw.slug || '',
+  description: raw.description || '',
+  status: raw.isActive === false ? 'Inactive' : 'Active',
+  displayOrder: raw.displayOrder ?? '',
+  image: resolveImageUrl(raw.imageUrl || raw.image),
+  imageUrl: raw.imageUrl || '',
+  categoryName: raw.categoryName || '',
+  products: raw.products || [],
 });
 
-const subcategoriesFromCategories = (categories) =>
-  categories.flatMap((category) => {
-    const subcategories = Array.isArray(category.subCategories) ? category.subCategories : [];
-    return subcategories.map((subcategory) =>
-      mapSubcategoryFromApi({
-        ...subcategory,
-        categoryId: subcategory.categoryId ?? category.id,
-        categoryName: subcategory.categoryName ?? category.name,
-      })
-    );
-  });
+export const mapProductFromApi = (raw = {}, categories = [], subcategories = []) => {
+  const subcategoryId = String(raw.subcategoryId ?? raw.subCategoryId ?? '');
+  const categoryId = String(
+    raw.categoryId ??
+    subcategories.find((s) => s.id === subcategoryId)?.categoryId ??
+    ''
+  );
 
-const categoryFormData = (category) => {
-  return JSON.stringify({
-    name: category.name,
-    description: category.description,
-    imageUrl: category.imageUrl || category.image || '',
-    isActive: toApiIsActive(category.status),
-  });
-};
+  let brandName = 'Shyam Agro Tools';
+  if (typeof raw.brand === 'string') {
+    brandName = raw.brand;
+  } else if (raw.brand && typeof raw.brand === 'object') {
+    brandName = raw.brand.name || raw.brand.brandName || brandName;
+  }
 
-const subcategoryFormData = (subcategory) => {
-  return JSON.stringify({
-    categoryId: Number(subcategory.categoryId),
-    name: subcategory.name,
-    description: subcategory.description,
-  });
-};
+  const stock = Number(raw.stockQuantity ?? raw.stock ?? 0);
 
-export const mapProductFromApi = (product = {}, categories = [], subcategories = []) => {
-  const subcategory = product.subcategory || product.subCategory || {};
-  const subcategoryId = String(product.subcategoryId ?? product.subCategoryId ?? subcategory.id ?? '');
-  const categoryId = String(product.categoryId ?? subcategory.categoryId ?? '');
-  const reviews = Array.isArray(product.reviews) ? product.reviews : [];
-  const media = Array.isArray(product.media) ? product.media : [];
-  const stock = Number(product.stockQuantity ?? product.stock ?? 0);
+  const reviews = (Array.isArray(raw.reviews) ? raw.reviews : []).map((r) => ({
+    customer: r.customerName || r.customer || 'Anonymous',
+    rating: String(Number(r.rating) || 5),
+    date: r.dateCreated ? r.dateCreated.slice(0, 7) : new Date().toISOString().slice(0, 7),
+    comment: r.comment || '',
+    verified: r.verified !== false,
+  }));
+
+  const keyFeatures = Array.isArray(raw.features)
+    ? raw.features.map((f) =>
+        f.featureName && f.featureValue
+          ? `${f.featureName}: ${f.featureValue}`
+          : f.featureName || ''
+      )
+    : Array.isArray(raw.keyFeatures)
+    ? raw.keyFeatures
+    : [];
+
+  const media = Array.isArray(raw.media) ? raw.media : [];
 
   return {
-    id: String(product.id ?? ''),
-    name: product.name || product.productName || product.product_name || '',
-    sku: product.sku || '',
-    brand: product.brand?.name || product.brand?.brandName || product.brand || 'Shyam Agro Tools',
-    categoryId: categoryId || subcategories.find((item) => item.id === subcategoryId)?.categoryId || categories[0]?.id || '',
+    id: String(raw.id ?? ''),
+    name: raw.name || raw.productName || '',
+    sku: raw.sku || '',
+    brand: brandName,
+    supplier: raw.supplier || raw.manufacturer || '',
+    categoryId: categoryId || categories[0]?.id || '',
     subcategoryId: subcategoryId || subcategories[0]?.id || '',
-    mrp: Number(product.mrp ?? product.basePrice ?? product.price ?? 0),
-    price: Number(product.price ?? 0),
-    stock,
-    status: product.isActive === false ? 'Inactive' : stock > 0 ? 'In Stock' : 'Out of Stock',
+    mrp: String(raw.basePrice ?? raw.mrp ?? raw.price ?? ''),
+    price: String(raw.price ?? ''),
+    discountType: raw.discountType || 'none',
+    discountValue: String(raw.discountValue ?? ''),
+    stock: String(stock),
+    status: raw.isActive === false ? 'Out of Stock' : stock > 0 ? 'In Stock' : 'Out of Stock',
+    countryOfOrigin: raw.countryOfOrigin || 'India',
+    codAvailable: raw.codAvailable || 'Yes',
+    deliveryEstimate: raw.deliveryEstimate || '3-7 business days',
+    returnPolicy: raw.returnPolicy || 'Easy Returns',
+    shortDescription: raw.shortDescription || raw.shortDesc || raw.description || '',
+    description: raw.description || '',
+    productDetails: raw.productDetails || raw.longDesc || raw.description || '',
+    packageIncludes: raw.packageIncludes || '',
     specifications: {
-      weight: product.weight || '',
+      weight: raw.weight || raw.specifications?.weight || '',
+      dimensions: raw.dimensions || raw.specifications?.dimensions || '',
+      powerSource: raw.powerSource || raw.specifications?.powerSource || '',
+      material: raw.material || raw.specifications?.material || '',
+      coverage: raw.coverageUsage || raw.specifications?.coverage || '',
     },
-    weight: product.weight || '',
-    rating: Number(product.rating ?? product.averageRating ?? 0),
-    totalReviews: Number(product.totalReviews ?? reviews.length ?? 0),
+    keyFeatures,
+    rating: String(raw.rating ?? ''),
+    totalReviews: String(raw.totalReviews ?? reviews.length ?? ''),
+    ratingBreakdown: raw.ratingBreakdown ?? { 5: '', 4: '', 3: '', 2: '', 1: '' },
     reviews,
-    image: resolveImageUrl(product.imageUrl || media[0]?.mediaUrl || ''),
-    imageUrl: product.imageUrl || media[0]?.mediaUrl || '',
-    raw: product,
+    image: resolveImageUrl(raw.imageUrl || media[0]?.mediaUrl || ''),
+    imageUrl: raw.imageUrl || media[0]?.mediaUrl || '',
   };
 };
 
+// ─── Category API ─────────────────────────────────────────────────────────────
+// GET  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Category
+// POST https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Category
+// PUT  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Category/{id}
+// DEL  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Category/{id}
+
 export const fetchCategories = async () => {
-  const categories = await request(`${API_ROOT}/categories`);
-  return unwrapList(categories)
-    .map(mapCategoryFromApi)
-    .sort((a, b) => Number(a.displayOrder) - Number(b.displayOrder));
+  const response = await api.get('/api/Category');
+  return unwrapList(response).map(mapCategoryFromApi);
 };
 
 export const fetchCategory = async (id) => {
-  const category = await request(`${API_ROOT}/categories/${id}`);
-  return mapCategoryFromApi(category);
+  // Try a direct single-item endpoint first, fall back to list search
+  try {
+    const response = await api.get(`/api/Category/${id}`);
+    const item = unwrapItem(response);
+    return mapCategoryFromApi(item);
+  } catch {
+    const all = await fetchCategories();
+    const found = all.find((c) => String(c.id) === String(id));
+    if (found) return found;
+    throw new Error('Category not found');
+  }
 };
 
 export const saveCategory = async (category) => {
   const isEditing = Boolean(category.id);
-  const saved = await request(`${API_ROOT}/categories${isEditing ? `/${category.id}` : ''}`, {
+
+  const fd = new FormData();
+  fd.append('Name', category.name || '');
+  fd.append('Description', category.description || '');
+  fd.append('Slug', category.slug || '');
+  fd.append('DisplayOrder', category.displayOrder || '');
+  fd.append('IsActive', category.status === 'Active' ? 'true' : 'false');
+  fd.append('MetaTitle', category.metaTitle || '');
+  fd.append('MetaDescription', category.metaDescription || '');
+
+  if (category.imageFile) {
+    fd.append('ImageFile', category.imageFile);
+  } else if (category.imageUrl || category.image) {
+    fd.append('ImageUrl', category.imageUrl || category.image || '');
+  }
+
+  const response = await api({
     method: isEditing ? 'PUT' : 'POST',
-    body: categoryFormData(category),
+    url: isEditing ? `/api/Category/${category.id}` : '/api/Category',
+    data: fd,
+    headers: { 'Content-Type': 'multipart/form-data' },
   });
-  return saved ? mapCategoryFromApi(saved) : category;
+
+  return mapCategoryFromApi(unwrapItem(response));
 };
 
-export const deleteCategory = (id) => request(`${API_ROOT}/categories/${id}`, { method: 'DELETE' });
+export const deleteCategory = async (id) => {
+  await api.delete(`/api/Category/${id}`);
+};
+
+// ─── Subcategory API ──────────────────────────────────────────────────────────
+// GET  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Subcategory
+// POST https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Subcategory
+// PUT  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Subcategories/{id}
+// DEL  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Subcategories/{id}
 
 export const fetchSubcategories = async () => {
-  try {
-    const subcategories = await request(`${API_ROOT}/subcategories`);
-    const mappedSubcategories = unwrapList(subcategories)
-      .map(mapSubcategoryFromApi)
-      .sort((a, b) => Number(a.displayOrder) - Number(b.displayOrder));
-    writeCachedSubcategories(mappedSubcategories);
-    return mappedSubcategories;
-  } catch (error) {
-    const categories = await fetchCategories();
-    const fallbackSubcategories = subcategoriesFromCategories(categories);
-    if (fallbackSubcategories.length) return fallbackSubcategories;
-    if (error.message?.includes('Backend serialization error')) {
-      return readCachedSubcategories();
-    }
-    throw error;
-  }
+  const response = await api.get('/api/Subcategory');
+  return unwrapList(response).map(mapSubcategoryFromApi);
 };
 
 export const fetchSubcategory = async (id) => {
   try {
-    const subcategory = await request(`${API_ROOT}/subcategories/${id}`);
-    return mapSubcategoryFromApi(subcategory);
-  } catch (error) {
-    const cachedSubcategory = readCachedSubcategories().find((subcategory) => subcategory.id === String(id));
-    if (cachedSubcategory) return cachedSubcategory;
-    throw error;
+    const response = await api.get(`/api/Subcategory/${id}`);
+    const item = unwrapItem(response);
+    return mapSubcategoryFromApi(item);
+  } catch {
+    const all = await fetchSubcategories();
+    const found = all.find((s) => String(s.id) === String(id));
+    if (found) return found;
+    throw new Error('Subcategory not found');
   }
 };
 
 export const saveSubcategory = async (subcategory) => {
   const isEditing = Boolean(subcategory.id);
-  const saved = await request(`${API_ROOT}/subcategories${isEditing ? `/${subcategory.id}` : ''}`, {
+
+  const payload = {
+    categoryId: Number(subcategory.categoryId) || 0,
+    name: subcategory.name || '',
+    slug: subcategory.slug || '',
+    description: subcategory.description || '',
+    displayOrder: Number(subcategory.displayOrder) || 0,
+    isActive: subcategory.status === 'Active',
+  };
+
+  const response = await api({
     method: isEditing ? 'PUT' : 'POST',
-    body: subcategoryFormData(subcategory),
+    // Note: PUT/DELETE use /api/Subcategories/{id} (plural), POST uses /api/Subcategory
+    url: isEditing ? `/api/Subcategories/${subcategory.id}` : '/api/Subcategory',
+    data: payload,
+    headers: { 'Content-Type': 'application/json' },
   });
-  const mappedSubcategory = saved ? mapSubcategoryFromApi(saved) : subcategory;
-  upsertCachedSubcategory(mappedSubcategory);
-  return mappedSubcategory;
+
+  const saved = mapSubcategoryFromApi(unwrapItem(response));
+  // Ensure categoryId is preserved even if the response omits it
+  return {
+    ...saved,
+    categoryId: saved.categoryId || String(subcategory.categoryId),
+  };
 };
 
 export const deleteSubcategory = async (id) => {
-  await request(`${API_ROOT}/subcategories/${id}`, { method: 'DELETE' });
-  removeCachedSubcategory(id);
+  await api.delete(`/api/Subcategories/${id}`);
 };
 
+// ─── Products API ─────────────────────────────────────────────────────────────
+// GET  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Products
+// POST https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Products
+// PUT  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Products/{id}
+// DEL  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Products/{id}
+
 export const fetchProducts = async (categories = [], subcategories = []) => {
-  const products = await request(`${API_ROOT}/products`);
-  return unwrapList(products).map((product) => mapProductFromApi(product, categories, subcategories));
+  const response = await api.get('/api/Products');
+  return unwrapList(response).map((p) => mapProductFromApi(p, categories, subcategories));
 };
 
 export const fetchProduct = async (id, categories = [], subcategories = []) => {
-  const product = await request(`${API_ROOT}/products/${id}`);
-  return mapProductFromApi(product, categories, subcategories);
+  const response = await api.get(`/api/Products/${id}`);
+  return mapProductFromApi(unwrapItem(response), categories, subcategories);
 };
 
-export const deleteProduct = (id) => request(`${API_ROOT}/products/${id}`, { method: 'DELETE' });
+export const saveProduct = async (product, imageFiles = [], videoFile = null) => {
+  const isEditing = Boolean(product.id);
+
+  const fd = new FormData();
+  fd.append('SubcategoryId', Number(product.subcategoryId) || 0);
+  fd.append('Name', product.name || '');
+  fd.append('Sku', product.sku || '');
+  fd.append('Brand', product.brand || 'Shyam Agro Tools');
+  fd.append('Supplier', product.supplier || '');
+  fd.append('Description', product.shortDescription || product.description || '');
+  fd.append('ProductDetails', product.productDetails || '');
+  fd.append('PackageIncludes', product.packageIncludes || '');
+  fd.append('Price', Number(product.price) || 0);
+  fd.append('BasePrice', Number(product.mrp) || Number(product.price) || 0);
+  fd.append('DiscountType', product.discountType || 'none');
+  fd.append('DiscountValue', Number(product.discountValue) || 0);
+  fd.append('StockQuantity', Number(product.stock) || 0);
+  fd.append('Status', product.status || 'In Stock');
+  fd.append('CountryOfOrigin', product.countryOfOrigin || 'India');
+  fd.append('CodAvailable', product.codAvailable || 'Yes');
+  fd.append('DeliveryEstimate', product.deliveryEstimate || '3-7 business days');
+  fd.append('ReturnPolicy', product.returnPolicy || 'Easy Returns');
+  fd.append('Rating', Number(product.rating) || 0);
+  fd.append('TotalReviews', Number(product.totalReviews) || 0);
+
+  // Specifications
+  fd.append('Weight', product.specifications?.weight || '');
+  fd.append('Dimensions', product.specifications?.dimensions || '');
+  fd.append('PowerSource', product.specifications?.powerSource || '');
+  fd.append('Material', product.specifications?.material || '');
+  fd.append('CoverageUsage', product.specifications?.coverage || '');
+
+  // Key features
+  if (Array.isArray(product.keyFeatures)) {
+    product.keyFeatures
+      .filter((f) => f && f.trim())
+      .forEach((feature, idx) => {
+        let name = feature.trim();
+        let val = '';
+        if (feature.includes(':')) {
+          const parts = feature.split(':');
+          name = parts[0].trim();
+          val = parts.slice(1).join(':').trim();
+        }
+        fd.append(`Features[${idx}].FeatureName`, name);
+        fd.append(`Features[${idx}].FeatureValue`, val);
+      });
+  }
+
+  // Images
+  if (Array.isArray(imageFiles) && imageFiles.length > 0) {
+    imageFiles.forEach((file) => fd.append('ImageFiles', file));
+  } else if (product.imageUrl) {
+    fd.append('ImageUrl', product.imageUrl);
+  }
+
+  // Video
+  if (videoFile) {
+    fd.append('VideoFile', videoFile);
+  }
+
+  const response = await api({
+    method: isEditing ? 'PUT' : 'POST',
+    url: isEditing ? `/api/Products/${product.id}` : '/api/Products',
+    data: fd,
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+
+  const saved = mapProductFromApi(unwrapItem(response));
+
+  // Persist the ID so the caller can reference it
+  return { ...saved, id: saved.id || product.id || '' };
+};
+
+export const deleteProduct = async (id) => {
+  await api.delete(`/api/Products/${id}`);
+};
