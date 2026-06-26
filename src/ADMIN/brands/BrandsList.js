@@ -4,21 +4,44 @@ import { Search, Edit, Trash2, Plus, Image as ImageIcon, Tag } from 'lucide-reac
 
 import './brands.css';
 // Inline API utilities
-const API_BASE = 'https://excretory-powdering-mocker.ngrok-free.dev/api/Catalog/brands';
+const API_BASE = 'https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Brand';
+const API_DOMAIN = 'https://wildlife-unwieldy-devotee.ngrok-free.dev';
+const API_ITEM = (id) => `https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Brand/${encodeURIComponent(id)}`;
+
+// Normalize brand object: map any possible image field name to `logo`
+const normalizeBrand = (b) => ({
+  ...b,
+  logo: b.logo || b.logoUrl || b.imageUrl || b.image || b.logoURL || b.ImageUrl || b.Logo || b.LogoUrl || '',
+});
+
+// Resolve logo value to a valid <img src> regardless of what format the API returns
+export const getLogoSrc = (logo) => {
+  if (!logo) return '';
+  if (logo.startsWith('data:')) return logo;                        // already a data URI
+  if (logo.startsWith('http://') || logo.startsWith('https://')) return logo; // full URL
+  if (logo.startsWith('/')) return `${API_DOMAIN}${logo}`;          // relative path
+  // Raw base64 string without data URI prefix
+  return `data:image/png;base64,${logo}`;
+};
 
 export const fetchBrands = async () => {
-  const res = await fetch(API_BASE, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+  const res = await fetch(API_BASE, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+  });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Failed to fetch brands: ${res.status} ${err}`);
   }
   const data = await res.json();
-  return Array.isArray(data) ? data : [];
+  return Array.isArray(data) ? data.map(normalizeBrand) : [];
 };
 
 export const deleteBrand = async (id) => {
-  const url = `${API_BASE}/${encodeURIComponent(id)}`;
-  const res = await fetch(url, { method: 'DELETE' });
+  const res = await fetch(API_ITEM(id), {
+    method: 'DELETE',
+    headers: { 'ngrok-skip-browser-warning': 'true' },
+  });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Delete brand failed: ${res.status} ${err}`);
@@ -124,10 +147,15 @@ useEffect(() => {
               <div className="brand-card__content">
                 <div className="brand-card__logo-frame">
                   {brand.logo ? (
-                    <img src={brand.logo} alt={brand.name} className="brand-card__logo" onError={(e) => {
-                      e.target.style.display = 'none';
-                      if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
-                    }} />
+                    <img
+                      src={getLogoSrc(brand.logo)}
+                      alt={brand.name}
+                      className="brand-card__logo"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
+                      }}
+                    />
                   ) : null}
                   <div className="brand-card__logo-placeholder" style={{ display: brand.logo ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
                     <ImageIcon size={36} />

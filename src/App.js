@@ -29,6 +29,8 @@ import { CartProvider } from './USER/context/CartContext';
 // New Dropdown Screens Imports
 import ProductsList from './ADMIN/catalog/ProductsList';
 import ProductsForm from './ADMIN/catalog/ProductsForm';
+import ProductFeatures from './ADMIN/catalog/ProductFeatures';
+import ProductReviews from './ADMIN/catalog/ProductReviews';
 import CategoriesList from './ADMIN/catalog/CategoriesList';
 import Category from './ADMIN/catalog/Category';
 import CustomersList from './ADMIN/customers/CustomersList';
@@ -113,6 +115,8 @@ function App() {
               {/* Dropdown Nested Routes */}
               <Route path="catalog/products" element={<ProductsList />} />
               <Route path="catalog/products-form" element={<ProductsForm />} />
+              <Route path="catalog/product-features" element={<ProductFeatures />} />
+              <Route path="catalog/product-reviews" element={<ProductReviews />} />
               <Route path="catalog/categories" element={<CategoriesList />} />
               <Route path="catalog/subcategories" element={<SubcategoriesList />} />
               <Route path="catalog/category" element={<Category />} />

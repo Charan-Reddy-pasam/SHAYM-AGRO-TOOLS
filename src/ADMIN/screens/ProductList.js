@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Edit, Trash2, Package } from 'lucide-react';
-import { fetchProducts, deleteProduct as deleteProductApi } from '../catalog/catalogApi';
+import { fetchProducts, deleteProduct as deleteProductApi } from '../catalog/productsApi';
 import '../catalog/adminModule.css';
 
 const ProductList = () => {

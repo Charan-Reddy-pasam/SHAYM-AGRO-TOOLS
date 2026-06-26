@@ -17,7 +17,7 @@ import {
   getCategoryName,
   getSubcategoryName,
 } from './catalogStore';
-import { fetchCategories, fetchSubcategories, fetchProduct, saveProduct as saveProductApi } from './catalogApi';
+import { fetchCategories, fetchSubcategories, fetchProduct, saveProduct as saveProductApi } from './productsApi';
 import './adminModule.css';
 import './ProductsForm.css';
 
@@ -718,9 +718,20 @@ const ProductsForm = () => {
                   <h2>Key Features</h2>
                   <p>Use short benefit-led points. These appear as a two-column feature list.</p>
                 </div>
-                <button type="button" className="catalog-btn" onClick={addFeature}>
-                  <Plus size={15} /> Add Feature
-                </button>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {isEditing && (
+                    <Link
+                      to={`/admin/catalog/product-features?productId=${productId}&name=${encodeURIComponent(formData.name || 'Product')}`}
+                      className="catalog-btn"
+                      style={{ fontSize: '13px' }}
+                    >
+                      Manage Features
+                    </Link>
+                  )}
+                  <button type="button" className="catalog-btn" onClick={addFeature}>
+                    <Plus size={15} /> Add Feature
+                  </button>
+                </div>
               </div>
 
               <div className="product-feature-list">
@@ -805,9 +816,20 @@ const ProductsForm = () => {
                   <h3>Featured Reviews</h3>
                   <p>Add only reviews you want shown prominently on the product page.</p>
                 </div>
-                <button type="button" className="catalog-btn" onClick={addReview}>
-                  <Plus size={15} /> Add Review
-                </button>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {isEditing && (
+                    <Link
+                      to={`/admin/catalog/product-reviews?productId=${productId}&name=${encodeURIComponent(formData.name || 'Product')}`}
+                      className="catalog-btn"
+                      style={{ fontSize: '13px' }}
+                    >
+                      Manage Reviews
+                    </Link>
+                  )}
+                  <button type="button" className="catalog-btn" onClick={addReview}>
+                    <Plus size={15} /> Add Review
+                  </button>
+                </div>
               </div>
 
               <div className="product-review-list">
@@ -1012,14 +1034,20 @@ const ProductsForm = () => {
                         <img key={idx} src={URL.createObjectURL(file)} alt="preview" className="image-thumb" />
                       ))}
                     </div>
+                  ) : formData.images && formData.images.length ? (
+                    <div className="image-preview-grid">
+                      {formData.images.map((url, idx) => (
+                        <img key={idx} src={url} alt="saved preview" className="image-thumb" />
+                      ))}
+                    </div>
                   ) : (
                     <Upload size={24} />
                   )}
                 </span>
                 <span style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <strong>Upload Images ({imageFiles.length ? `${imageFiles.length}/7` : '4‑7'})</strong>
-                    {imageFiles.length > 0 && (
+                    <strong>Upload Images ({imageFiles.length ? `${imageFiles.length}/7` : formData.images && formData.images.length ? `${formData.images.length}/7` : '4‑7'})</strong>
+                    {(imageFiles.length > 0 || (formData.images && formData.images.length > 0)) && (
                       <button
                         type="button"
                         style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex' }}
@@ -1036,7 +1064,13 @@ const ProductsForm = () => {
               </label>
               <label className="catalog-upload" htmlFor="product-video" style={{ marginTop: '12px' }}>
                 <span className="catalog-upload__box" style={{ height: '180px' }}>
-                  {formData.videoPreview ? <video src={formData.videoPreview} controls style={{ width: '100%', height: '100%' }} /> : <Upload size={24} />}
+                  {formData.videoPreview ? (
+                    <video src={formData.videoPreview} controls style={{ width: '100%', height: '100%' }} />
+                  ) : formData.video ? (
+                    <video src={formData.video} controls style={{ width: '100%', height: '100%' }} />
+                  ) : (
+                    <Upload size={24} />
+                  )}
                 </span>
                 <span>
                   <strong>Upload Video (MP4)</strong>
@@ -1069,13 +1103,19 @@ const ProductsForm = () => {
         <div className="catalog-modal-overlay" onClick={() => setShowImagePreview(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div className="catalog-modal" onClick={e => e.stopPropagation()} style={{ background: '#fff', padding: '24px', borderRadius: '12px', width: '90%', maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto' }}>
             <div className="catalog-modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3>Image Previews ({imageFiles.length})</h3>
+              <h3>Image Previews ({imageFiles.length || (formData.images && formData.images.length) || 0})</h3>
               <button onClick={() => setShowImagePreview(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
             </div>
             <div className="catalog-modal-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
-               {imageFiles.map((file, idx) => (
-                 <img key={idx} src={URL.createObjectURL(file)} alt="preview" style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #eee' }} />
-               ))}
+               {imageFiles.length > 0 ? (
+                 imageFiles.map((file, idx) => (
+                   <img key={idx} src={URL.createObjectURL(file)} alt="preview" style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #eee' }} />
+                 ))
+               ) : (
+                 formData.images && formData.images.map((url, idx) => (
+                   <img key={idx} src={url} alt="saved preview" style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #eee' }} />
+                 ))
+               )}
             </div>
           </div>
         </div>

@@ -37,7 +37,7 @@ const Customer = () => {
 
   const fetchCustomer = () => {
     setLoading(true);
-    fetch(`https://excretory-powdering-mocker.ngrok-free.dev/api/Customers/${id}`, {
+    fetch(`https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Customers/${id}`, {
       headers: { 'ngrok-skip-browser-warning': 'true' }
     })
       .then(res => {
@@ -88,7 +88,7 @@ const Customer = () => {
         }
       };
 
-      const res = await fetch(`https://excretory-powdering-mocker.ngrok-free.dev/api/Customers/${id}`, {
+      const res = await fetch(`https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Customers/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -113,7 +113,7 @@ const Customer = () => {
       return;
     }
     try {
-      const res = await fetch(`https://excretory-powdering-mocker.ngrok-free.dev/api/Customers/${id}/advisory`, {
+      const res = await fetch(`https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Customers/${id}/advisory`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

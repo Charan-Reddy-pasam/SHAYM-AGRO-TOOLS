@@ -26,7 +26,7 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "dev": "npm start",
+    "dev": "set PORT=3001 && npm start",
     "start": "concurrently \"npm run watch:css\" \"craco start\"",
     "watch:css": "tailwindcss -i ./src/index.css -o ./src/tailwind-output.css --watch",
     "build:css": "tailwindcss -i ./src/index.css -o ./src/tailwind-output.css",

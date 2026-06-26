@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './AdminLoginPage.css';
 
-const ADMIN_AUTH_API = "https://wildlife-unwieldy-devotee.ngrok-free.dev/api/auth/admin";
+const ADMIN_AUTH_API = "https://satin-eastcoast-musky.ngrok-free.dev/api/Auth";
 const HEADERS  = { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' };
 const REQUEST_TIMEOUT = 8000;
 

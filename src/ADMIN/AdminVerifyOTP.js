@@ -4,10 +4,8 @@ import { motion } from 'framer-motion';
 import axios from 'axios';
 import './AdminVerifyOTP.css';
 
-const API_ROOT = "https://wildlife-unwieldy-devotee.ngrok-free.dev/api";
-const ADMIN_AUTH_API = `${API_ROOT}/auth/admin`;
-const ADMIN_API_BASE = `${API_ROOT}/Admin`;
-const STAFF_API    = `${API_ROOT}/Staff`;
+const ADMIN_AUTH_API = "https://satin-eastcoast-musky.ngrok-free.dev/api/Auth";
+
 const HEADERS      = { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' };
 const REQUEST_TIMEOUT = 20000;
 const OTP_TIMEOUT  = 120; // seconds admin has to enter OTP
@@ -37,7 +35,7 @@ const buildAdminLoginPayload = (emailAddress, passwordValue) => ({
 
 const buildAdminVerifyOtpPayload = (emailAddress, otpValue) => ({
   email: emailAddress?.trim(),
-  code: otpValue
+  otp: otpValue
 });
 
 const getDisplayNameFromEmail = (emailAddress) => {
@@ -119,20 +117,7 @@ const getNameFromAuthPayload = (payload) =>
   payload?.admin?.name;
 
 const fetchRegisteredStaffRole = async (emailAddress) => {
-  if (!emailAddress) return '';
-
-  try {
-    const response = await axios.get(STAFF_API, { headers: HEADERS, timeout: REQUEST_TIMEOUT });
-    const normalizedEmail = emailAddress.trim().toLowerCase();
-    const match = flattenRecords(response.data).find(
-      (staffMember) => getEmailFromRecord(staffMember) === normalizedEmail
-    );
-
-    return getRoleFromRecord(match);
-  } catch (error) {
-    console.warn('Unable to check staff role:', error.response?.data || error.message);
-    return '';
-  }
+  return '';
 };
 
 const AdminVerifyOTP = () => {
@@ -219,17 +204,17 @@ const AdminVerifyOTP = () => {
     if (!canResend) return;
     try {
       if (fromLogin) {
-        // Login 2FA flow → re-call login to trigger a fresh OTP
+        // Login 2FA flow → ResendOtpDto: { email }
         await axios.post(
-          `${ADMIN_AUTH_API}/login`,
-          buildAdminLoginPayload(email, password),
+          `${ADMIN_AUTH_API}/resend-otp`,
+          { email: email?.trim() },
           { headers: HEADERS, timeout: REQUEST_TIMEOUT }
         );
       } else {
-        // Forgot-password flow → re-call forgot-password endpoint
+        // Forgot-password flow → ForgotPasswordDto: { email }
         await axios.post(
-          `${ADMIN_API_BASE}/forgot-password`,
-          { Email: email, NewPassword: newPassword, ConfirmPassword: newPassword },
+          `${ADMIN_AUTH_API}/forgot-password`,
+          { email: email?.trim() },
           { headers: HEADERS, timeout: REQUEST_TIMEOUT }
         );
       }
@@ -259,11 +244,15 @@ const AdminVerifyOTP = () => {
     try {
       // Build payload based on which flow we are in
       const payload = fromLogin
-        ? buildAdminVerifyOtpPayload(email, otp)                    // Login 2FA flow
-        : { Otp: otp, Email: email, NewPassword: newPassword };    // Forgot password flow
+        ? buildAdminVerifyOtpPayload(email, otp)                                        // Login 2FA: VerifyOtpDto
+        : { email: email?.trim(), otp, newPassword, confirmPassword: newPassword };    // Forgot password: ResetPasswordDto
+
+      const endpoint = fromLogin
+        ? `${ADMIN_AUTH_API}/verify-otp`
+        : `${ADMIN_AUTH_API}/reset-password`;
 
       const response = await axios.post(
-        fromLogin ? `${ADMIN_AUTH_API}/verify-otp` : `${ADMIN_API_BASE}/verify-otp`,
+        endpoint,
         payload,
         { headers: HEADERS, timeout: REQUEST_TIMEOUT }
       );

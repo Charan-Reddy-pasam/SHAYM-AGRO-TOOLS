@@ -1,11 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, Check, Edit, Filter, Package, Plus, Search, Star, Trash2 } from 'lucide-react';
 import {
   getCategoryName,
   getSubcategoryName,
 } from './catalogStore';
-import { deleteProduct as deleteProductApi, fetchCategories, fetchProducts, fetchSubcategories } from './catalogApi';
+import {
+  deleteProduct as deleteProductApi,
+  fetchCategories,
+  fetchProducts,
+  fetchSubcategories,
+  searchProducts,
+} from './productsApi';
 import './adminModule.css';
 
 const formatCurrency = (value) => `INR ${Number(value || 0).toLocaleString('en-IN')}`;
@@ -17,10 +23,9 @@ const getStatusClass = (status) => {
 };
 
 const getDiscountLabel = (product) => {
-  const mrp = Number(product.mrp) || Number(product.price) || 0;
+  const mrp = Number(product.mrp) || 0;
   const price = Number(product.price) || 0;
   if (!mrp || mrp <= price) return 'No discount';
-
   const percentage = Math.round(((mrp - price) / mrp) * 100);
   return `${percentage}% off`;
 };
@@ -33,76 +38,96 @@ const ProductsList = () => {
   const [selectedCategoryId, setSelectedCategoryId] = useState('All');
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [isLoading, setIsLoading] = useState(true);
+  const [isSearching, setIsSearching] = useState(false);
   const [isDeletingId, setIsDeletingId] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
-  useEffect(() => {
-    let isMounted = true;
+  // ── Load taxonomy & full product list on mount ────────────────────────────
+  const loadAll = useCallback(async (isMounted) => {
+    setIsLoading(true);
+    setErrorMessage('');
+    try {
+      const [cats, subcats] = await Promise.all([
+        fetchCategories(),
+        fetchSubcategories(),
+      ]);
+      if (!isMounted) return;
+      setCategories(cats);
+      setSubcategories(subcats);
 
-    const loadProducts = async () => {
-      setIsLoading(true);
-      setErrorMessage('');
-
-      try {
-        const [cats, subcats] = await Promise.all([
-          fetchCategories(),
-          fetchSubcategories(),
-        ]);
-        if (isMounted) {
-          setCategories(cats);
-          setSubcategories(subcats);
-        }
-
-        const apiProducts = await fetchProducts(cats, subcats);
-        if (isMounted) setProducts(apiProducts);
-      } catch (error) {
-        if (isMounted) {
-          setErrorMessage(error.message || 'Unable to load products.');
-        }
-      } finally {
-        if (isMounted) setIsLoading(false);
-      }
-    };
-
-    loadProducts();
-
-    return () => {
-      isMounted = false;
-    };
+      const apiProducts = await fetchProducts(cats, subcats);
+      if (isMounted) setProducts(apiProducts);
+    } catch (error) {
+      if (isMounted) setErrorMessage(error.message || 'Unable to load products.');
+    } finally {
+      if (isMounted) setIsLoading(false);
+    }
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+    loadAll(isMounted);
+    return () => { isMounted = false; };
+  }, [loadAll]);
+
+  // ── API-side search (debounced 400 ms) ────────────────────────────────────
+  useEffect(() => {
+    if (!searchTerm.trim()) return; // empty → show all from local state
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const results = await searchProducts(searchTerm.trim(), categories, subcategories);
+        if (!cancelled) setProducts(results);
+      } catch (err) {
+        if (!cancelled) setErrorMessage(err.message || 'Search failed.');
+      } finally {
+        if (!cancelled) setIsSearching(false);
+      }
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchTerm, categories, subcategories]);
+
+  // When search is cleared, reload the full list
+  useEffect(() => {
+    if (searchTerm.trim()) return;
+    let isMounted = true;
+    loadAll(isMounted);
+    return () => { isMounted = false; };
+  }, [searchTerm, loadAll]);
+
+  // ── Client-side filter by category + status ───────────────────────────────
   const filteredProducts = useMemo(() => {
-    const query = searchTerm.toLowerCase();
-
     return products.filter((product) => {
-      const categoryName = getCategoryName(categories, product.categoryId);
-      const subcategoryName = getSubcategoryName(subcategories, product.subcategoryId);
-      const matchesSearch =
-        product.name.toLowerCase().includes(query) ||
-        product.sku.toLowerCase().includes(query) ||
-        categoryName.toLowerCase().includes(query) ||
-        subcategoryName.toLowerCase().includes(query);
-      const matchesCategory = selectedCategoryId === 'All' || product.categoryId === selectedCategoryId;
-      const matchesStatus = selectedStatus === 'All' || product.status === selectedStatus;
-
-      return matchesSearch && matchesCategory && matchesStatus;
+      const matchesCategory =
+        selectedCategoryId === 'All' || product.categoryId === selectedCategoryId;
+      const matchesStatus =
+        selectedStatus === 'All' || product.status === selectedStatus;
+      return matchesCategory && matchesStatus;
     });
-  }, [categories, products, searchTerm, selectedCategoryId, selectedStatus, subcategories]);
+  }, [products, selectedCategoryId, selectedStatus]);
 
-  const deleteProduct = async (id) => {
+  // ── Delete ────────────────────────────────────────────────────────────────
+  const handleDelete = async (id) => {
     if (!window.confirm('Delete this product?')) return;
     setIsDeletingId(id);
     setErrorMessage('');
-
     try {
       await deleteProductApi(id);
-      setProducts((current) => current.filter((product) => product.id !== id));
+      setProducts((current) => current.filter((p) => p.id !== id));
     } catch (error) {
       setErrorMessage(error.message || 'Unable to delete product.');
     } finally {
       setIsDeletingId('');
     }
   };
+
+  const busy = isLoading || isSearching;
 
   return (
     <div className="catalog-page">
@@ -131,31 +156,40 @@ const ProductsList = () => {
         )}
 
         <div className="catalog-filterbar">
+          {/* API-backed search */}
           <div className="catalog-search">
             <Search size={18} />
             <input
               type="text"
-              placeholder="Search product, SKU, category, or subcategory"
+              placeholder="Search product name, SKU…"
               value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
+              onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
 
           <div className="catalog-inline-actions">
+            {/* Category filter */}
             <label className="catalog-filter">
               <Filter size={16} />
-              <select value={selectedCategoryId} onChange={(event) => setSelectedCategoryId(event.target.value)}>
+              <select
+                value={selectedCategoryId}
+                onChange={(e) => setSelectedCategoryId(e.target.value)}
+              >
                 <option value="All">All Categories</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name}
                   </option>
                 ))}
               </select>
             </label>
 
+            {/* Status filter */}
             <label className="catalog-filter">
-              <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
+              <select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+              >
                 <option value="All">All Status</option>
                 <option value="In Stock">In Stock</option>
                 <option value="Low Stock">Low Stock</option>
@@ -163,7 +197,9 @@ const ProductsList = () => {
               </select>
             </label>
 
-            <span className="catalog-count">{filteredProducts.length} products</span>
+            <span className="catalog-count">
+              {busy ? '…' : filteredProducts.length} products
+            </span>
           </div>
         </div>
 
@@ -175,7 +211,7 @@ const ProductsList = () => {
                 <th>SKU</th>
                 <th>Category</th>
                 <th>Subcategory</th>
-                <th className="catalog-number-cell">Price</th>
+                <th className="catalog-number-cell">MRP / Price</th>
                 <th>Discount</th>
                 <th>Rating</th>
                 <th className="catalog-center-cell">Stock</th>
@@ -184,48 +220,62 @@ const ProductsList = () => {
               </tr>
             </thead>
             <tbody>
-              {isLoading && (
+              {busy && (
                 <tr>
                   <td colSpan="10" className="catalog-center-cell">
-                    Loading products from API...
+                    {isLoading ? 'Loading products from API…' : 'Searching…'}
                   </td>
                 </tr>
               )}
-              {!isLoading && filteredProducts.map((product) => (
+
+              {!busy && filteredProducts.map((product) => (
                 <tr key={product.id}>
                   <td>
                     <span className="catalog-badge">
-                      <Package size={14} /> {product.id}
+                      <Package size={14} /> #{product.id}
                     </span>
                     <div className="catalog-table__title">{product.name}</div>
                     <div className="catalog-table__muted">
-                      {product.brand || 'Brand not set'} - {product.specifications?.weight || product.weight || 'Weight not set'}
+                      {product.brand || 'Brand not set'} · {product.specifications?.weight || 'Weight N/A'}
                     </div>
                   </td>
-                  <td className="catalog-path">{product.sku}</td>
+                  <td className="catalog-path">{product.sku || '—'}</td>
                   <td>{getCategoryName(categories, product.categoryId)}</td>
                   <td>{getSubcategoryName(subcategories, product.subcategoryId)}</td>
                   <td className="catalog-number-cell">
                     {formatCurrency(product.price)}
                     {Number(product.mrp) > Number(product.price) && (
-                      <div className="catalog-table__muted">MRP {formatCurrency(product.mrp)}</div>
+                      <div className="catalog-table__muted">
+                        MRP {formatCurrency(product.mrp)}
+                      </div>
                     )}
                   </td>
                   <td>
-                    <span className={`catalog-badge ${Number(product.mrp) > Number(product.price) ? 'catalog-badge--low' : ''}`}>
+                    <span
+                      className={`catalog-badge ${
+                        Number(product.mrp) > Number(product.price) ? 'catalog-badge--low' : ''
+                      }`}
+                    >
                       {getDiscountLabel(product)}
                     </span>
                   </td>
                   <td>
                     <span className="catalog-badge">
-                      <Star size={13} fill="currentColor" /> {Number(product.rating || 0).toFixed(1)}
+                      <Star size={13} fill="currentColor" />{' '}
+                      {Number(product.rating || 0).toFixed(1)}
                     </span>
-                    <div className="catalog-table__muted">{Number(product.totalReviews || 0)} reviews</div>
+                    <div className="catalog-table__muted">
+                      {Number(product.totalReviews || 0)} reviews
+                    </div>
                   </td>
                   <td className="catalog-center-cell">{product.stock}</td>
                   <td>
                     <span className={`catalog-badge ${getStatusClass(product.status)}`}>
-                      {product.status === 'In Stock' ? <Check size={13} /> : <AlertTriangle size={13} />}
+                      {product.status === 'In Stock' ? (
+                        <Check size={13} />
+                      ) : (
+                        <AlertTriangle size={13} />
+                      )}
                       {product.status}
                     </span>
                   </td>
@@ -241,7 +291,7 @@ const ProductsList = () => {
                       <button
                         type="button"
                         className="catalog-btn catalog-btn--icon catalog-btn--danger"
-                        onClick={() => deleteProduct(product.id)}
+                        onClick={() => handleDelete(product.id)}
                         disabled={isDeletingId === product.id}
                         title="Delete product"
                       >
@@ -251,7 +301,8 @@ const ProductsList = () => {
                   </td>
                 </tr>
               ))}
-              {!isLoading && !filteredProducts.length && (
+
+              {!busy && !filteredProducts.length && (
                 <tr>
                   <td colSpan="10" className="catalog-center-cell">
                     No products match your filters.

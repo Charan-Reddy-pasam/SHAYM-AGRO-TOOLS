@@ -32,7 +32,7 @@ const CustomersList = () => {
 
   const fetchCustomers = () => {
     setLoading(true);
-    fetch('https://excretory-powdering-mocker.ngrok-free.dev/api/Customers', {
+    fetch('https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Customers', {
       headers: { 'ngrok-skip-browser-warning': 'true' }
     })
       .then(res => {
@@ -52,7 +52,7 @@ const CustomersList = () => {
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this customer?')) return;
     try {
-      const res = await fetch(`https://excretory-powdering-mocker.ngrok-free.dev/api/Customers/${id}`, {
+      const res = await fetch(`https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Customers/${id}`, {
         method: 'DELETE',
         headers: { 'ngrok-skip-browser-warning': 'true' }
       });
@@ -90,7 +90,7 @@ const CustomersList = () => {
         }
       };
 
-      const res = await fetch('https://excretory-powdering-mocker.ngrok-free.dev/api/Customers', {
+      const res = await fetch('https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Customers', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

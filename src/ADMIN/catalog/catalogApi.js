@@ -264,18 +264,18 @@ export const deleteSubcategory = async (id) => {
 };
 
 // ─── Products API ─────────────────────────────────────────────────────────────
-// GET  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Products
-// POST https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Products
-// PUT  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Products/{id}
-// DEL  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Products/{id}
+// GET  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Catalog/products
+// POST https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Catalog/products
+// PUT  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Catalog/products/{id}
+// DEL  https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Catalog/products/{id}
 
 export const fetchProducts = async (categories = [], subcategories = []) => {
-  const response = await api.get('/api/Products');
+  const response = await api.get('/api/Catalog/products');
   return unwrapList(response).map((p) => mapProductFromApi(p, categories, subcategories));
 };
 
 export const fetchProduct = async (id, categories = [], subcategories = []) => {
-  const response = await api.get(`/api/Products/${id}`);
+  const response = await api.get(`/api/Catalog/products/${id}`);
   return mapProductFromApi(unwrapItem(response), categories, subcategories);
 };
 
@@ -342,7 +342,7 @@ export const saveProduct = async (product, imageFiles = [], videoFile = null) =>
 
   const response = await api({
     method: isEditing ? 'PUT' : 'POST',
-    url: isEditing ? `/api/Products/${product.id}` : '/api/Products',
+    url: isEditing ? `/api/Catalog/products/${product.id}` : '/api/Catalog/products',
     data: fd,
     headers: { 'Content-Type': 'multipart/form-data' },
   });
@@ -354,5 +354,5 @@ export const saveProduct = async (product, imageFiles = [], videoFile = null) =>
 };
 
 export const deleteProduct = async (id) => {
-  await api.delete(`/api/Products/${id}`);
+  await api.delete(`/api/Catalog/products/${id}`);
 };

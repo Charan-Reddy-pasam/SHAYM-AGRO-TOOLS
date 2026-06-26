@@ -4,20 +4,56 @@ import { ArrowLeft, Save, Upload, Trash2, CheckCircle, AlertCircle } from 'lucid
 import './brands.css';
 
 // Inline API utilities
-const API_BASE = 'https://excretory-powdering-mocker.ngrok-free.dev/api/Catalog/brands';
+const API_BASE = 'https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Brand';
+const API_DOMAIN = 'https://wildlife-unwieldy-devotee.ngrok-free.dev';
+const API_ITEM = (id) => `https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Brand/${encodeURIComponent(id)}`;
+
+// Normalize brand object: map any possible image field name to `logo`
+const normalizeBrand = (b) => ({
+  ...b,
+  logo: b.logo || b.logoUrl || b.imageUrl || b.image || b.logoURL || b.ImageUrl || b.Logo || b.LogoUrl || '',
+});
+
+// Resolve logo value to a valid <img src> regardless of what format the API returns
+export const getLogoSrc = (logo) => {
+  if (!logo) return '';
+  if (logo.startsWith('data:')) return logo;                         // already a data URI
+  if (logo.startsWith('http://') || logo.startsWith('https://')) return logo; // full URL
+  if (logo.startsWith('/')) return `${API_DOMAIN}${logo}`;           // relative path
+  // Raw base64 string without data URI prefix
+  return `data:image/png;base64,${logo}`;
+};
 
 export const fetchBrands = async () => {
-  const res = await fetch(API_BASE, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+  const res = await fetch(API_BASE, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+  });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Failed to fetch brands: ${res.status} ${err}`);
   }
   const data = await res.json();
-  return Array.isArray(data) ? data : [];
+  return Array.isArray(data) ? data.map(normalizeBrand) : [];
 };
 
 export const createBrand = async (brand) => {
-  const res = await fetch(API_BASE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(brand) });
+  const fd = new FormData();
+  fd.append('Name', brand.name);
+  fd.append('Description', brand.description || '');
+  fd.append('IsActive', 'true');
+  
+  if (brand.logoFile) {
+    fd.append('ImageFile', brand.logoFile);
+  } else if (brand.logo) {
+    fd.append('LogoUrl', brand.logo);
+  }
+
+  const res = await fetch(API_BASE, {
+    method: 'POST',
+    headers: { 'ngrok-skip-browser-warning': 'true' },
+    body: fd,
+  });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Create brand failed: ${res.status} ${err}`);
@@ -26,13 +62,30 @@ export const createBrand = async (brand) => {
 };
 
 export const updateBrand = async (brand) => {
-  const url = `${API_BASE}/${encodeURIComponent(brand.id)}`;
-  const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(brand) });
+  const fd = new FormData();
+  fd.append('Id', brand.id);
+  fd.append('Name', brand.name);
+  fd.append('Description', brand.description || '');
+  fd.append('IsActive', 'true');
+  
+  if (brand.logoFile) {
+    fd.append('ImageFile', brand.logoFile);
+  } else if (brand.logo) {
+    fd.append('LogoUrl', brand.logo);
+  } else {
+    fd.append('LogoUrl', '');
+  }
+
+  const res = await fetch(API_ITEM(brand.id), {
+    method: 'PUT',
+    headers: { 'ngrok-skip-browser-warning': 'true' },
+    body: fd,
+  });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Update brand failed: ${res.status} ${err}`);
   }
-  return await res.json();
+  return { success: true };
 };
 
 const BrandForm = () => {
@@ -44,6 +97,7 @@ const BrandForm = () => {
   const [id, setId] = useState('');
   const [name, setName] = useState('');
   const [logo, setLogo] = useState('');
+  const [logoFile, setLogoFile] = useState(null);
   const [isSaved, setIsSaved] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -58,6 +112,7 @@ const BrandForm = () => {
             setId(existing.id);
             setName(existing.name);
             setLogo(existing.logo || '');
+            setLogoFile(null);
           } else {
             setErrorMsg('Brand not found.');
           }
@@ -72,6 +127,7 @@ const BrandForm = () => {
             return largest;
           }, 0) + 1;
           setId(`BRD-${String(nextNum).padStart(3, '0')}`);
+          setLogoFile(null);
         }
       } catch (e) {
         setErrorMsg(e.message);
@@ -90,6 +146,7 @@ const BrandForm = () => {
     }
 
     setErrorMsg('');
+    setLogoFile(file);
     const reader = new FileReader();
     reader.onloadend = () => {
       setLogo(reader.result);
@@ -101,6 +158,7 @@ const BrandForm = () => {
     e.preventDefault();
     e.stopPropagation();
     setLogo('');
+    setLogoFile(null);
   };
 
   const handleSubmit = async (e) => {
@@ -119,9 +177,9 @@ const BrandForm = () => {
 
     try {
       if (isEditing) {
-        await updateBrand({ id: id.trim(), name: name.trim(), logo });
+        await updateBrand({ id: id.trim(), name: name.trim(), logo, logoFile });
       } else {
-        await createBrand({ id: id.trim(), name: name.trim(), logo });
+        await createBrand({ id: id.trim(), name: name.trim(), logo, logoFile });
       }
       setIsSaved(true);
       setTimeout(() => {
@@ -208,7 +266,11 @@ const BrandForm = () => {
               {logo ? (
                 <div className="brand-image-preview">
                   <div className="brand-image-preview__box">
-                    <img src={logo} alt="Preview" className="brand-image-preview__img" />
+                    <img
+                      src={getLogoSrc(logo)}
+                      alt="Preview"
+                      className="brand-image-preview__img"
+                    />
                   </div>
                   <div className="brand-image-preview__actions">
                     <button

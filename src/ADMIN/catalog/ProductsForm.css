@@ -213,8 +213,32 @@
   bottom: 0;
   z-index: 10;
   padding: 14px 0;
-  background: linear-gradient(to top, #f6f8fb 72%, rgba(246, 248, 251, 0));
+  /* Very light background to keep buttons visible while scrolling */
+  background: rgba(255, 255, 255, 0.4);
 }
+
+/* Primary Save button – dark background, brighter on hover */
+.catalog-btn--primary {
+  background: #2636b6; /* dark blue-purple */
+  color: #fff;
+  border: none;
+  transition: background 0.2s ease;
+}
+.catalog-btn--primary:hover {
+  background: #1a254f; /* darker on hover */
+}
+
+/* Secondary/Cancel button – transparent background, darkens on hover */
+.catalog-btn {
+  background: transparent;
+  color: #111;
+  border: 1px solid #d1d5db;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.catalog-btn:hover {
+  background: #e5e7eb; /* light gray on hover */
+}
+
 
 @media (max-width: 1180px) {
   .product-form-layout {

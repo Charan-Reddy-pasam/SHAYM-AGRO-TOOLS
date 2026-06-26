@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import axios from 'axios';
 import './AdminForgotPassword.css';
 
-const API_BASE = "https://excretory-powdering-mocker.ngrok-free.dev/api/Admin";
+const ADMIN_AUTH_API = "https://satin-eastcoast-musky.ngrok-free.dev/api/Auth";
 const HEADERS  = { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' };
 
 const AdminForgotPassword = () => {
@@ -34,32 +34,26 @@ const AdminForgotPassword = () => {
 
     setIsLoading(true);
     try {
-      // Backend requires: Email, NewPassword, ConfirmPassword (PascalCase)
+      // ForgotPasswordDto only accepts { email }
       const response = await axios.post(
-        `${API_BASE}/forgot-password`,
-        { Email: email, NewPassword: newPassword, ConfirmPassword: confirmPassword },
+        `${ADMIN_AUTH_API}/forgot-password`,
+        { email: email.trim() },
         { headers: HEADERS }
       );
 
-      if (response.status === 200 || response.data?.success) {
-        navigate('/admin/verify-otp', { state: { email, newPassword } });
+      if (response.status === 200 || response.data?.success !== false) {
+        // Pass newPassword in state so OTP screen can call /reset-password
+        navigate('/admin/verify-otp', { state: { email: email.trim(), newPassword, confirmPassword } });
       } else {
         setError(response.data?.message || 'Request failed. Please try again.');
       }
     } catch (err) {
       console.error('Forgot Password Error:', err.response?.data || err.message);
-      
-      const isNetworkError = !err.response || err.code === 'ERR_NETWORK' || err.message.toLowerCase().includes('network error');
-      if (isNetworkError) {
-        console.warn("Backend API is unreachable. Navigating to OTP screen using mock/local verification.");
-        navigate('/admin/verify-otp', { state: { email, newPassword, isMock: true } });
-      } else {
-        setError(
-          err.response?.data?.message ||
-          err.response?.data?.title ||
-          'Something went wrong. Please try again.'
-        );
-      }
+      setError(
+        err.response?.data?.message ||
+        err.response?.data?.title ||
+        'Something went wrong. Please try again.'
+      );
     } finally {
       setIsLoading(false);
     }

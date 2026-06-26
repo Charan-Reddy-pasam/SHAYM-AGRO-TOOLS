@@ -46,7 +46,7 @@ const StatCard = ({ icon: Icon, label, value, detail }) => (
   </div>
 );
 
-const API_URL = 'https://excretory-powdering-mocker.ngrok-free.dev/api/Coins';
+const API_URL = 'https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Coins';
 
 const CoinsConverterScreen = () => {
   const [settings, setSettings] = useState(initialSettings);
