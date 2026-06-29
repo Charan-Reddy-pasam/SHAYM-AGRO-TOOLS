@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Save, Trash2, X, PackagePlus } from 'lucide-react';
+import { ArrowLeft, Plus, Save, X, PackagePlus } from 'lucide-react';
 import {
   fetchProductFeatures,
   createProductFeature,
