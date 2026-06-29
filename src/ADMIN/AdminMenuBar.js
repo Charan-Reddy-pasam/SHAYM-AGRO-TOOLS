@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { 
-  Home, Box, Users, ShoppingCart, Target, Mail, 
-  FolderOpen, BarChart2, Settings, ChevronRight, ChevronDown, FileText
+  Home, Box, Users, ShoppingCart, Target, 
+  FolderOpen, BarChart2, Settings, ChevronRight, ChevronDown, FileText, Boxes
 } from 'lucide-react';
 import './AdminMenuBar.css';
 
@@ -156,6 +156,20 @@ const AdminMenuBar = ({ expanded = false }) => {
                 <li><NavLink to="/admin/orders/list"    className={({ isActive }) => isActive ? 'submenu-link active' : 'submenu-link'}>Orders List</NavLink></li>
                 <li><NavLink to="/admin/orders/details" className={({ isActive }) => isActive ? 'submenu-link active' : 'submenu-link'}>Order Details</NavLink></li>
               </ul>
+            </li>
+
+            {/* Stock Updates */}
+            <li>
+              <NavLink
+                to="/admin/stock-updates"
+                className={({ isActive }) => isActive ? 'stroyka-nav-link active' : 'stroyka-nav-link'}
+                title="Stock Updates"
+              >
+                <div className="nav-left">
+                  <Boxes size={18} className="nav-icon" />
+                  {expanded && <span>Stock Updates</span>}
+                </div>
+              </NavLink>
             </li>
 
             {/* Marketing */}

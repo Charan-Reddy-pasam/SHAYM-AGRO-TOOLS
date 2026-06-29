@@ -191,13 +191,18 @@
 
 /* Active parent */
 .active-parent {
-  color: #2636b6 !important;
-  background: rgba(38, 54, 182, 0.06);
-  border-left: 3px solid #2636b6;
+  background: linear-gradient(90deg, #2636b6 0%, #151f86 100%) !important;
+  color: #ffffff !important;
+  border-left: 3px solid #ff0712 !important;
+  font-weight: 600;
 }
 
 .active-parent .nav-icon {
-  color: #2636b6 !important;
+  color: #ffffff !important;
+}
+
+.active-parent .nav-arrow {
+  color: rgba(255, 255, 255, 0.7) !important;
 }
 
 /* Chevrons */

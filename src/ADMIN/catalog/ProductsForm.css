@@ -266,3 +266,32 @@
   }
 }
 
+/* SKU Input with Generator Button */
+.sku-input-wrap {
+  display: flex;
+  gap: 8px;
+}
+
+.sku-input-wrap input {
+  flex: 1;
+}
+
+.sku-gen-btn {
+  padding: 0 14px;
+  background: #eef2ff;
+  border: 1.5px dashed #c7d2fe;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #2636b6;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.sku-gen-btn:hover {
+  background: #2636b6;
+  border-color: #2636b6;
+  color: #ffffff;
+}
+

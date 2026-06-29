@@ -14,7 +14,7 @@ import {
 } from './productsApi';
 import './adminModule.css';
 
-const formatCurrency = (value) => `INR ${Number(value || 0).toLocaleString('en-IN')}`;
+const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
 
 const getStatusClass = (status) => {
   if (status === 'In Stock') return 'catalog-badge--stock';
@@ -283,19 +283,19 @@ const ProductsList = () => {
                     <div className="catalog-inline-actions">
                       <Link
                         to={`/admin/catalog/products-form?id=${product.id}`}
-                        className="catalog-btn catalog-btn--icon"
+                        className="action-icon-btn action-icon-btn--edit"
                         title="Edit product"
                       >
-                        <Edit size={15} />
+                        <Edit size={16} />
                       </Link>
                       <button
                         type="button"
-                        className="catalog-btn catalog-btn--icon catalog-btn--danger"
+                        className="action-icon-btn action-icon-btn--delete"
                         onClick={() => handleDelete(product.id)}
                         disabled={isDeletingId === product.id}
                         title="Delete product"
                       >
-                        <Trash2 size={15} />
+                        <Trash2 size={16} />
                       </button>
                     </div>
                   </td>

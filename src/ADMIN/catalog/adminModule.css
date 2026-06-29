@@ -136,6 +136,55 @@
   padding: 0;
 }
 
+/* ── Professional Icon-Only Action Buttons ── */
+.action-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 0;
+}
+
+.action-icon-btn:hover {
+  transform: translateY(-1px);
+}
+
+.action-icon-btn--view:hover {
+  color: #2636b6;
+  background: #eef2ff;
+}
+
+.action-icon-btn--edit:hover {
+  color: #2636b6;
+  background: #eef2ff;
+}
+
+.action-icon-btn--delete {
+  color: #94a3b8;
+}
+
+.action-icon-btn--delete:hover {
+  color: #dc2626;
+  background: #fee2e2;
+}
+
+.action-icon-btn:active {
+  transform: translateY(0);
+}
+
+.action-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: transparent !important;
+}
+
 .catalog-btn:disabled,
 .catalog-btn[aria-disabled="true"] {
   opacity: 0.55;

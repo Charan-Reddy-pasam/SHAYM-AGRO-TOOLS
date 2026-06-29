@@ -172,6 +172,13 @@ const ProductsForm = () => {
   const [showImagePreview, setShowImagePreview] = useState(false);
   const isEditing = Boolean(productId);
 
+  const generateMockSku = () => {
+    const cat = categories.find(c => String(c.id) === String(formData.categoryId));
+    const catCode = cat ? cat.name.substring(0, 3).toUpperCase() : 'GEN';
+    const randNum = Math.floor(100 + Math.random() * 900);
+    setFormData((current) => ({ ...current, sku: `SAT-${catCode}-${randNum}` }));
+  };
+
   useEffect(() => {
     let isMounted = true;
     Promise.all([fetchCategories(), fetchSubcategories()]).then(([cats, subcats]) => {
@@ -532,15 +539,20 @@ const ProductsForm = () => {
 
                 <div className="catalog-field">
                   <label htmlFor="product-sku">SKU / Item Code</label>
-                  <input
-                    id="product-sku"
-                    name="sku"
-                    type="text"
-                    value={formData.sku}
-                    onChange={handleInputChange}
-                    placeholder="AG-DRIP-P8"
-                    required
-                  />
+                  <div className="sku-input-wrap">
+                    <input
+                      id="product-sku"
+                      name="sku"
+                      type="text"
+                      value={formData.sku}
+                      onChange={handleInputChange}
+                      placeholder="AG-DRIP-P8"
+                      required
+                    />
+                    <button className="sku-gen-btn" onClick={generateMockSku} type="button" title="Generate SKU Code">
+                      Generate
+                    </button>
+                  </div>
                 </div>
 
                 <div className="catalog-field">

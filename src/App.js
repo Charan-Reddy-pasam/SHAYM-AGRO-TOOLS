@@ -50,6 +50,7 @@ import SuppliersForm from './ADMIN/suppliers/SuppliersForm';
 import BrandsList from './ADMIN/brands/BrandsList';
 import BrandForm from './ADMIN/brands/BrandForm';
 import CRMAppRoutes from './CRM/routes/AppRoutes';
+import StockUpdates from './ADMIN/stock/StockUpdates';
 
 
 
@@ -134,6 +135,7 @@ function App() {
               <Route path="blogs/form" element={<BlogForm />} />
               <Route path="settings/toc" element={<TableOfContent />} />
               <Route path="settings/form" element={<FormSettings />} />
+              <Route path="stock-updates" element={<StockUpdates />} />
             </Route>
 
           </Routes>
