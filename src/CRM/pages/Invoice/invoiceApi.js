@@ -1,4 +1,4 @@
-const API_BASE_URL = "https://satin-eastcoast-musky.ngrok-free.dev/api";
+const API_BASE_URL = "https://wildlife-unwieldy-devotee.ngrok-free.dev/api";
 
 export const INVOICES_API_URL = `${API_BASE_URL}/Invoices`;
 export const INVOICE_ACTIONS_API_URL = `${API_BASE_URL}/invoice-actions`;
@@ -53,12 +53,98 @@ export const normalizeInvoiceEnvelope = (record) => {
     };
   }
 
+  // If the record is already nested (e.g. from local form state), return it as is or normalize it
+  if (record.invoice && record.items) {
+    return {
+      invoice: record.invoice,
+      items: Array.isArray(record.items) ? record.items : [],
+      billing: record.billing || {},
+      shipping: record.shipping || {},
+      payment: record.payment || {},
+    };
+  }
+
+  const rawInvoice = record;
+  const items = Array.isArray(rawInvoice.items)
+    ? rawInvoice.items.map((item) => {
+        const rate = item.price
+          ? Number(String(item.price).replace(/[^0-9.]/g, ""))
+          : Number(item.rate || 0);
+        const amount = item.total
+          ? Number(String(item.total).replace(/[^0-9.]/g, ""))
+          : rate * Number(item.quantity || 1);
+        return {
+          itemId: item.itemId || 0,
+          productName: item.productName || "",
+          productDetails: item.productDetails || "",
+          rate,
+          quantity: Number(item.quantity || 1),
+          amount,
+        };
+      })
+    : [];
+
+  const billedAmount = rawInvoice.billed
+    ? Number(String(rawInvoice.billed).replace(/[^0-9.]/g, ""))
+    : Number(rawInvoice.totalAmount || 0);
+
+  const subTotal = items.reduce((sum, item) => sum + item.rate * item.quantity, 0) || billedAmount;
+  const taxAmount = subTotal * 0.125;
+  const totalAmount = billedAmount || (subTotal + taxAmount);
+
+  const invoice = {
+    invoiceId: rawInvoice.id || 0,
+    invoiceNumber: rawInvoice.invoiceId || rawInvoice.invoiceNumber || `INV-${rawInvoice.id}`,
+    invoiceDate: rawInvoice.date ? new Date(rawInvoice.date).toISOString() : new Date().toISOString(),
+    clientName: rawInvoice.client || rawInvoice.clientName || "",
+    email: rawInvoice.email || rawInvoice.emailAddress || "",
+    companyAddress: rawInvoice.address || rawInvoice.companyAddress || rawInvoice.shippingAddress || "",
+    postalCode: rawInvoice.postalCode || "",
+    contactNo: rawInvoice.phone || rawInvoice.contactNo || "",
+    paymentStatus: rawInvoice.status || rawInvoice.paymentStatus || "Unpaid",
+    invoiceStatus: rawInvoice.status || rawInvoice.paymentStatus || "Unpaid",
+    subTotal,
+    taxAmount,
+    discountAmount: Number(rawInvoice.discount || 0),
+    shippingCharge: Number(rawInvoice.shippingCharge || 0),
+    totalAmount,
+    notes: rawInvoice.notes || "",
+  };
+
+  const billing = {
+    billingId: 0,
+    invoiceId: rawInvoice.id || 0,
+    fullName: rawInvoice.billingName || rawInvoice.client || "",
+    address: rawInvoice.billingAddress || rawInvoice.address || "",
+    phone: rawInvoice.billingPhone || rawInvoice.phone || "",
+    taxNumber: rawInvoice.billingTaxNumber || rawInvoice.taxNumber || "",
+    email: rawInvoice.billingEmail || rawInvoice.email || "",
+  };
+
+  const shipping = {
+    shippingId: 0,
+    invoiceId: rawInvoice.id || 0,
+    fullName: rawInvoice.shippingName || rawInvoice.client || "",
+    address: rawInvoice.shippingAddress || rawInvoice.address || "",
+    phone: rawInvoice.shippingPhone || rawInvoice.phone || "",
+    taxNumber: rawInvoice.shippingTaxNumber || rawInvoice.taxNumber || "",
+    email: rawInvoice.shippingEmail || rawInvoice.email || "",
+  };
+
+  const payment = {
+    paymentId: 0,
+    invoiceId: rawInvoice.id || 0,
+    paymentMethod: rawInvoice.paymentMethod || "Cash",
+    cardHolderName: "",
+    cardNumber: "",
+  };
+
   return {
-    invoice: record.invoice || record,
-    items: Array.isArray(record.items) ? record.items : [],
-    billing: record.billing || {},
-    shipping: record.shipping || {},
-    payment: record.payment || {},
+    invoice,
+    items,
+    billing,
+    shipping,
+    payment,
   };
 };
 

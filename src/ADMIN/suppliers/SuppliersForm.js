@@ -1,20 +1,21 @@
-import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Building2,
-  CheckCircle2,
-  ClipboardList,
   Mail,
   MapPin,
   Phone,
   RotateCcw,
   Save,
   ShieldCheck,
-  Truck
+  Truck,
+  Check
 } from 'lucide-react';
 import { supplierCategories } from './SuppliersList';
 import '../catalog/adminModule.css';
+import { Toast } from '../components/Toast';
+import { fetchSupplier, createSupplier, updateSupplier } from './suppliersApi';
 
 const initialSupplier = {
   name: '',
@@ -33,71 +34,132 @@ const initialSupplier = {
 };
 
 const SuppliersForm = () => {
+  const { id } = useParams();
   const [supplier, setSupplier] = useState(initialSupplier);
-  const [savedMessage, setSavedMessage] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState('success');
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!id) return;
+    const loadSupplierData = async () => {
+      try {
+        const data = await fetchSupplier(id);
+        if (data) {
+          setSupplier(data);
+        }
+      } catch (err) {
+        console.error('Failed to load supplier details:', err);
+        setToastMessage('Failed to load supplier profile.');
+        setToastType('warning');
+      }
+    };
+    loadSupplierData();
+  }, [id]);
 
   const completionScore = useMemo(() => {
     const requiredFields = ['name', 'contactPerson', 'email', 'phone', 'city', 'address', 'productLines'];
-    const completed = requiredFields.filter((field) => supplier[field].trim()).length;
+    const completed = requiredFields.filter((field) => supplier[field] && String(supplier[field]).trim()).length;
     return Math.round((completed / requiredFields.length) * 100);
   }, [supplier]);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
     setSupplier((prev) => ({ ...prev, [name]: value }));
-    setSavedMessage('');
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
-    setSavedMessage(`${supplier.name || 'Supplier'} has been prepared for onboarding review.`);
+    if (!supplier.name.trim() || !supplier.contactPerson.trim() || !supplier.email.trim() || !supplier.phone.trim()) {
+      setToastMessage('Please fill in all required fields.');
+      setToastType('warning');
+      return;
+    }
+    
+    setIsSaving(true);
+    try {
+      if (id) {
+        await updateSupplier(id, supplier);
+        setToastMessage(`${supplier.name} has been updated.`);
+      } else {
+        await createSupplier(supplier);
+        setToastMessage(`${supplier.name} has been submitted for onboarding review.`);
+      }
+      setToastType('success');
+      
+      setTimeout(() => {
+        navigate('/admin/suppliers/list');
+      }, 1200);
+    } catch (err) {
+      console.error('Failed to save supplier:', err);
+      setToastMessage('Failed to save supplier details: ' + err.message);
+      setToastType('warning');
+      setIsSaving(false);
+    }
   };
 
   const handleReset = () => {
     setSupplier(initialSupplier);
-    setSavedMessage('');
   };
 
   return (
-    <div className="suppliers-page supplier-form-page">
-      <section className="catalog-header suppliers-header">
-        <div className="catalog-title-wrap">
-          <Link className="suppliers-back-link" to="/admin/suppliers/list">
+    <div className="suppliers-page supplier-form-page" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {toastMessage && (
+        <Toast message={toastMessage} type={toastType} onClose={() => setToastMessage('')} />
+      )}
+
+      {/* Top Header Row with Actions in Top-Right */}
+      <section className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+        <div className="flex items-center gap-3">
+          <Link className="p-2 hover:bg-slate-50 text-slate-600 rounded-lg transition-colors border border-slate-200" to="/admin/suppliers/list">
             <ArrowLeft size={16} />
-            Back to suppliers
           </Link>
-          <span className="catalog-kicker">Supplier Onboarding</span>
-          <h1>Add Supplier</h1>
-          <p>Create a clean supplier profile for procurement, purchase orders, dispatch planning, and compliance review.</p>
+          <div>
+            <span className="catalog-kicker" style={{ fontSize: '10px', textTransform: 'uppercase', color: '#059669', fontWeight: 700 }}>Procurement</span>
+            <h1 style={{ fontSize: '18px', fontWeight: 800, color: '#1e293b', margin: 0 }}>Add Supplier Profile</h1>
+          </div>
         </div>
 
-        <div className="supplier-form-score">
-          <span>Profile Completion</span>
-          <strong>{completionScore}%</strong>
-          <div>
-            <span style={{ width: `${completionScore}%` }} />
-          </div>
+        <div className="flex items-center gap-2">
+          <button className="catalog-btn" type="button" onClick={handleReset} disabled={isSaving} style={{ fontSize: '11px', padding: '6px 12px' }}>
+            <RotateCcw size={14} style={{ marginRight: '4px' }} />
+            Reset
+          </button>
+          <button className="catalog-btn catalog-btn--primary" onClick={handleSubmit} disabled={isSaving} style={{ fontSize: '11px', padding: '6px 12px' }}>
+            <Save size={14} style={{ marginRight: '4px' }} />
+            Save Supplier
+          </button>
         </div>
       </section>
 
-      {savedMessage && (
-        <div className="catalog-alert">
-          <CheckCircle2 size={18} />
-          {savedMessage}
-        </div>
-      )}
-
-      <form className="supplier-form-layout" onSubmit={handleSubmit}>
-        <main className="catalog-stack">
-          <section className="catalog-card">
-            <div className="catalog-card__header">
-              <div>
-                <h2>Company Information</h2>
-                <p className="catalog-card__subtitle">Primary supplier identity and procurement classification.</p>
-              </div>
+      {/* Completion Score Sleek Progress Indicator */}
+      <section className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between">
+        <div>
+          <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Profile Setup Progress</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' }}>
+            <div style={{ width: '200px', height: '8px', backgroundColor: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+              <div style={{ width: `${completionScore}%`, height: '100%', backgroundColor: completionScore === 100 ? '#10b981' : '#2563eb', transition: 'width 0.3s' }}></div>
             </div>
+            <strong style={{ fontSize: '14px', color: '#1e293b' }}>{completionScore}%</strong>
+          </div>
+        </div>
+        <span style={{ fontSize: '11px', color: '#64748b' }}>
+          Fill required fields to complete the onboarding record.
+        </span>
+      </section>
 
-            <div className="catalog-form-grid">
+      {/* Grid Layout: Form and Sidebar */}
+      <form className="supplier-form-layout" onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '16px', alignItems: 'start' }}>
+        <main className="catalog-stack" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          
+          {/* Company Information */}
+          <section className="catalog-card" style={{ padding: '16px', margin: 0 }}>
+            <h3 style={{ fontSize: '12px', fontWeight: 800, textTransform: 'uppercase', color: '#059669', letterSpacing: '0.05em', borderBottom: '2px solid #f1f5f9', paddingBottom: '6px', margin: '0 0 12px 0' }}>
+              Company Details
+            </h3>
+
+            <div className="catalog-form-grid" style={{ gap: '12px' }}>
               <div className="catalog-field">
                 <label htmlFor="name">Supplier Name</label>
                 <input
@@ -108,6 +170,7 @@ const SuppliersForm = () => {
                   onChange={handleChange}
                   placeholder="e.g. KisanKraft Ltd."
                   required
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
                 />
               </div>
 
@@ -121,12 +184,13 @@ const SuppliersForm = () => {
                   onChange={handleChange}
                   placeholder="Procurement contact name"
                   required
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
                 />
               </div>
 
               <div className="catalog-field">
                 <label htmlFor="category">Category</label>
-                <select id="category" name="category" value={supplier.category} onChange={handleChange}>
+                <select id="category" name="category" value={supplier.category} onChange={handleChange} style={{ padding: '6px 10px', fontSize: '12px' }}>
                   {supplierCategories.map((category) => (
                     <option value={category} key={category}>{category}</option>
                   ))}
@@ -135,7 +199,7 @@ const SuppliersForm = () => {
 
               <div className="catalog-field">
                 <label htmlFor="status">Approval Status</label>
-                <select id="status" name="status" value={supplier.status} onChange={handleChange}>
+                <select id="status" name="status" value={supplier.status} onChange={handleChange} style={{ padding: '6px 10px', fontSize: '12px' }}>
                   <option value="Pending">Pending</option>
                   <option value="Review">Review</option>
                   <option value="Verified">Verified</option>
@@ -152,6 +216,7 @@ const SuppliersForm = () => {
                   value={supplier.gstin}
                   onChange={handleChange}
                   placeholder="Optional tax registration"
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
                 />
               </div>
 
@@ -165,22 +230,21 @@ const SuppliersForm = () => {
                   onChange={handleChange}
                   placeholder="Tillers, pumps, drip kits"
                   required
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
                 />
               </div>
             </div>
           </section>
 
-          <section className="catalog-card">
-            <div className="catalog-card__header">
-              <div>
-                <h2>Contact & Address</h2>
-                <p className="catalog-card__subtitle">Communication details used by purchasing and dispatch teams.</p>
-              </div>
-            </div>
+          {/* Contact & Address */}
+          <section className="catalog-card" style={{ padding: '16px', margin: 0 }}>
+            <h3 style={{ fontSize: '12px', fontWeight: 800, textTransform: 'uppercase', color: '#059669', letterSpacing: '0.05em', borderBottom: '2px solid #f1f5f9', paddingBottom: '6px', margin: '0 0 12px 0' }}>
+              Contact &amp; Location
+            </h3>
 
-            <div className="catalog-form-grid">
+            <div className="catalog-form-grid" style={{ gap: '12px' }}>
               <div className="catalog-field">
-                <label htmlFor="email">Email</label>
+                <label htmlFor="email">Email Address</label>
                 <input
                   id="email"
                   name="email"
@@ -189,11 +253,12 @@ const SuppliersForm = () => {
                   onChange={handleChange}
                   placeholder="orders@supplier.com"
                   required
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
                 />
               </div>
 
               <div className="catalog-field">
-                <label htmlFor="phone">Phone</label>
+                <label htmlFor="phone">Phone Number</label>
                 <input
                   id="phone"
                   name="phone"
@@ -202,6 +267,7 @@ const SuppliersForm = () => {
                   onChange={handleChange}
                   placeholder="+91 98765-43210"
                   required
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
                 />
               </div>
 
@@ -215,6 +281,7 @@ const SuppliersForm = () => {
                   onChange={handleChange}
                   placeholder="City, State"
                   required
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
                 />
               </div>
 
@@ -227,6 +294,7 @@ const SuppliersForm = () => {
                   value={supplier.leadTime}
                   onChange={handleChange}
                   placeholder="e.g. 4-6 days"
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
                 />
               </div>
 
@@ -239,25 +307,26 @@ const SuppliersForm = () => {
                   onChange={handleChange}
                   placeholder="Street, industrial area, city, state, PIN"
                   required
+                  rows={2}
+                  style={{ padding: '6px 10px', fontSize: '12px', resize: 'none' }}
                 />
               </div>
             </div>
           </section>
         </main>
 
-        <aside className="catalog-stack">
-          <section className="catalog-card">
-            <div className="catalog-card__header">
-              <div>
-                <h2>Commercial Terms</h2>
-                <p className="catalog-card__subtitle">Internal details for purchase planning.</p>
-              </div>
-            </div>
+        <aside className="catalog-stack" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          
+          {/* Commercial Terms */}
+          <section className="catalog-card" style={{ padding: '16px', margin: 0 }}>
+            <h3 style={{ fontSize: '12px', fontWeight: 800, textTransform: 'uppercase', color: '#059669', letterSpacing: '0.05em', borderBottom: '2px solid #f1f5f9', paddingBottom: '6px', margin: '0 0 12px 0' }}>
+              Procurement Terms
+            </h3>
 
-            <div className="catalog-form">
+            <div className="catalog-form" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div className="catalog-field">
                 <label htmlFor="paymentTerms">Payment Terms</label>
-                <select id="paymentTerms" name="paymentTerms" value={supplier.paymentTerms} onChange={handleChange}>
+                <select id="paymentTerms" name="paymentTerms" value={supplier.paymentTerms} onChange={handleChange} style={{ padding: '6px 10px', fontSize: '12px' }}>
                   <option value="Net 7">Net 7</option>
                   <option value="Net 15">Net 15</option>
                   <option value="Net 30">Net 30</option>
@@ -268,67 +337,66 @@ const SuppliersForm = () => {
               </div>
 
               <div className="catalog-field">
-                <label htmlFor="notes">Procurement Notes</label>
+                <label htmlFor="notes">Internal Notes</label>
                 <textarea
                   id="notes"
                   name="notes"
                   value={supplier.notes}
                   onChange={handleChange}
-                  placeholder="Quality checks, delivery preferences, preferred dispatch days..."
+                  placeholder="Quality parameters, preferred dispatch days, logistics defaults..."
+                  rows={3}
+                  style={{ padding: '6px 10px', fontSize: '12px', resize: 'none' }}
                 />
               </div>
             </div>
           </section>
 
-          <section className="catalog-card supplier-preview-card">
-            <div className="catalog-card__header">
-              <div>
-                <h2>Supplier Snapshot</h2>
-                <p className="catalog-card__subtitle">Quick review before saving.</p>
-              </div>
-            </div>
+          {/* Supplier Snapshot Card */}
+          <section className="catalog-card supplier-preview-card" style={{ padding: '16px', margin: 0 }}>
+            <h3 style={{ fontSize: '12px', fontWeight: 800, textTransform: 'uppercase', color: '#059669', letterSpacing: '0.05em', borderBottom: '2px solid #f1f5f9', paddingBottom: '6px', margin: '0 0 12px 0' }}>
+              Live Review
+            </h3>
 
-            <div className="supplier-preview-list">
-              <div>
-                <Building2 size={17} />
-                <span>{supplier.name || 'Supplier name'}</span>
+            <div className="supplier-preview-list" style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '11px', color: '#475569' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Building2 size={15} style={{ color: '#059669' }} />
+                <span style={{ fontWeight: 600, color: '#1e293b' }}>{supplier.name || 'Vendor Name'}</span>
               </div>
-              <div>
-                <ShieldCheck size={17} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldCheck size={15} style={{ color: '#059669' }} />
                 <span>{supplier.status} | {supplier.category}</span>
               </div>
-              <div>
-                <Phone size={17} />
-                <span>{supplier.phone || 'Phone number'}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Phone size={15} style={{ color: '#059669' }} />
+                <span>{supplier.phone || 'Phone Number'}</span>
               </div>
-              <div>
-                <Mail size={17} />
-                <span>{supplier.email || 'Email address'}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Mail size={15} style={{ color: '#059669' }} />
+                <span>{supplier.email || 'Email Address'}</span>
               </div>
-              <div>
-                <MapPin size={17} />
-                <span>{supplier.city || 'City / region'}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <MapPin size={15} style={{ color: '#059669' }} />
+                <span>{supplier.city || 'City / Region'}</span>
               </div>
-              <div>
-                <Truck size={17} />
-                <span>{supplier.leadTime || 'Lead time not set'}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Truck size={15} style={{ color: '#059669' }} />
+                <span>{supplier.leadTime || 'Lead time not specified'}</span>
               </div>
             </div>
           </section>
 
-          <div className="supplier-form-actions">
-            <button className="catalog-btn" type="button" onClick={handleReset}>
-              <RotateCcw size={16} />
-              Reset
-            </button>
-            <button className="catalog-btn catalog-btn--primary" type="submit">
-              <Save size={16} />
-              Save Supplier
-            </button>
-            <Link className="catalog-btn" to="/admin/suppliers/list">
-              <ClipboardList size={16} />
-              View List
+          {/* Bottom Actions inside Sidebar */}
+          <div className="flex justify-end gap-2 border-t pt-4">
+            <Link to="/admin/suppliers/list" className="px-4 py-2 border border-slate-200 rounded-lg text-slate-600 text-xs font-semibold hover:bg-slate-50 transition-colors">
+              Cancel
             </Link>
+            <button
+              onClick={handleSubmit}
+              disabled={isSaving}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors shadow-sm flex items-center gap-1"
+            >
+              <Check size={14} /> Save Supplier
+            </button>
           </div>
         </aside>
       </form>

@@ -17,7 +17,7 @@ import {
 
 import "./Dashboard.css";
 
-const API_BASE_URL = "https://satin-eastcoast-musky.ngrok-free.dev/api";
+const API_BASE_URL = "https://wildlife-unwieldy-devotee.ngrok-free.dev/api";
 
 function Dashboard() {
   const navigate = useNavigate();

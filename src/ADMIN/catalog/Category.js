@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, Layers, Plus, Save, Upload } from 'lucide-react';
+import { ArrowLeft, Layers, Save, Upload } from 'lucide-react';
 import { slugify } from './catalogStore';
 import { fetchCategory, saveCategory as saveCategoryApi } from './catalogApi';
+import { Toast } from '../components/Toast';
 import './adminModule.css';
 
 const emptyCategory = {
@@ -23,10 +24,9 @@ const Category = () => {
   const [searchParams] = useSearchParams();
   const categoryId = searchParams.get('id');
   const [formData, setFormData] = useState(emptyCategory);
-  const [isSaved, setIsSaved] = useState(false);
   const [isLoading, setIsLoading] = useState(Boolean(categoryId));
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [toast, setToast] = useState(null);
   const isEditing = Boolean(categoryId);
 
   useEffect(() => {
@@ -36,7 +36,6 @@ const Category = () => {
     const loadCategory = async () => {
       try {
         setIsLoading(true);
-        setError('');
         const existingCategory = await fetchCategory(categoryId);
         if (!isMounted) return;
         setFormData({
@@ -46,21 +45,18 @@ const Category = () => {
           imageFile: null,
         });
       } catch (apiError) {
-        if (isMounted) setError(apiError.message || 'Unable to load category.');
+        setToast({ message: apiError.message || 'Unable to load category.', type: 'error' });
       } finally {
         if (isMounted) setIsLoading(false);
       }
     };
 
     loadCategory();
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, [categoryId]);
 
   const handleInputChange = (event) => {
     const { name, value } = event.target;
-
     setFormData((current) => ({
       ...current,
       [name]: value,
@@ -71,7 +67,6 @@ const Category = () => {
   const handleImageChange = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onloadend = () => {
       setFormData((current) => ({ ...current, image: reader.result, imageFile: file }));
@@ -79,193 +74,132 @@ const Category = () => {
     reader.readAsDataURL(file);
   };
 
-  const saveCategory = async () => {
-    setIsSaving(true);
-    setError('');
+  const validate = () => {
+    if (!formData.name.trim()) {
+      setToast({ message: 'Category Name is required!', type: 'error' });
+      return false;
+    }
+    if (!formData.slug.trim()) {
+      setToast({ message: 'URL Slug is required!', type: 'error' });
+      return false;
+    }
+    if (!formData.description.trim()) {
+      setToast({ message: 'Description is required!', type: 'error' });
+      return false;
+    }
+    return true;
+  };
 
+  const handleSave = async (e) => {
+    if (e) e.preventDefault();
+    if (!validate()) return;
+    setIsSaving(true);
     try {
-      const savedCategory = await saveCategoryApi({
+      const saved = await saveCategoryApi({
         ...formData,
         slug: formData.slug || slugify(formData.name),
         metaTitle: formData.metaTitle || `${formData.name} | Shyam Agro Tools`,
         metaDescription: formData.metaDescription || formData.description,
       });
-
-      setFormData((current) => ({ ...current, ...savedCategory, imageFile: null }));
-      setIsSaved(true);
-      setTimeout(() => setIsSaved(false), 2200);
-      return savedCategory;
+      if (saved) {
+        setToast({ message: 'Category saved successfully!', type: 'success' });
+        setTimeout(() => {
+          navigate('/admin/catalog/categories');
+        }, 1500);
+      }
     } catch (apiError) {
-      setError(apiError.message || 'Unable to save category.');
-      return null;
+      setToast({ message: apiError.message || 'Failed to save category.', type: 'error' });
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    await saveCategory();
-  };
-
-  const handleSaveAndAddSubcategory = async () => {
-    const savedCategory = await saveCategory();
-    if (savedCategory) navigate(`/admin/catalog/subcategory?categoryId=${savedCategory.id}`);
-  };
-
   return (
-    <div className="catalog-page">
-      <section className="catalog-header">
+    <div className="catalog-page" style={{ padding: '0px', maxWidth: '100%', margin: '0px' }}>
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+      <section className="catalog-header" style={{ padding: '16px 20px', marginBottom: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
         <div className="catalog-title-wrap">
-          <span className="catalog-kicker">Step 1 of 3</span>
-          <h1>{isEditing ? 'Edit Category' : 'Create Category'}</h1>
-          <p>Create the main catalog group first. Subcategories and products will depend on this category.</p>
+          <span className="catalog-kicker">Catalog Management</span>
+          <h1 style={{ fontSize: '20px', fontWeight: '800' }}>{isEditing ? 'Edit Category' : 'Create Category'}</h1>
+          <p style={{ fontSize: '13px', margin: '4px 0 0' }}>Define details for the catalog category group.</p>
         </div>
-
-        <div className="catalog-header__actions">
-          <Link to="/admin/catalog/categories" className="catalog-btn">
-            <ArrowLeft size={16} /> Categories List
+        <div className="catalog-header__actions" style={{ gap: '8px' }}>
+          <Link to="/admin/catalog/categories" className="catalog-btn" style={{ padding: '6px 12px', fontSize: '13px' }}>
+            <ArrowLeft size={14} /> Categories List
           </Link>
-          <button type="button" className="catalog-btn catalog-btn--primary" onClick={handleSaveAndAddSubcategory}>
-            <Plus size={16} /> Save & Add Subcategory
+          <button type="button" className="catalog-btn catalog-btn--primary" onClick={handleSave} disabled={isSaving} style={{ padding: '6px 12px', fontSize: '13px' }}>
+            <Save size={14} /> {isSaving ? 'Saving...' : 'Save Category'}
           </button>
         </div>
       </section>
 
-      <section className="catalog-card">
-        <div className="catalog-card__header">
-          <div>
-            <h2>Category Details</h2>
-            <p className="catalog-card__subtitle">Keep names clear because they appear in forms, filters, and product organization.</p>
-          </div>
-          {isSaved && (
-            <span className="catalog-alert">
-              <CheckCircle size={16} /> Category saved
-            </span>
-          )}
-        </div>
-
-        {error && <div className="catalog-alert catalog-alert--danger">{error}</div>}
+      <section className="catalog-card" style={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: 'none', padding: '20px' }}>
         {isLoading ? (
-          <div className="catalog-center-cell">Loading category...</div>
+          <div className="catalog-center-cell" style={{ padding: '32px' }}>Loading category...</div>
         ) : (
-          <form className="catalog-form" onSubmit={handleSubmit}>
-          <div className="catalog-form-grid">
-            <div className="catalog-field">
-              <label htmlFor="category-name">Category Name</label>
-              <input
-                id="category-name"
-                name="name"
-                type="text"
-                value={formData.name}
-                onChange={handleInputChange}
-                placeholder="e.g. Farm Tools & Machinery"
-                required
-              />
-            </div>
-
-            <div className="catalog-field">
-              <label htmlFor="category-slug">URL Slug</label>
-              <input
-                id="category-slug"
-                name="slug"
-                type="text"
-                value={formData.slug}
-                onChange={handleInputChange}
-                placeholder="farm-tools-machinery"
-                required
-              />
-            </div>
-          </div>
-
-          <div className="catalog-form-grid catalog-form-grid--three">
-            <div className="catalog-field">
-              <label htmlFor="category-order">Display Order</label>
-              <input
-                id="category-order"
-                name="displayOrder"
-                type="number"
-                min="1"
-                value={formData.displayOrder}
-                onChange={handleInputChange}
-                placeholder="1"
-              />
-            </div>
-
-            <div className="catalog-field">
-              <label htmlFor="category-status">Status</label>
-              <select id="category-status" name="status" value={formData.status} onChange={handleInputChange}>
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-              </select>
-            </div>
-
-            <div className="catalog-field">
-              <label>Category Image</label>
-              <label className="catalog-upload" htmlFor="category-image">
-                <span className="catalog-upload__box">
-                  {formData.image ? <img src={formData.image} alt="" /> : <Upload size={24} />}
-                </span>
-                <span>
-                  <strong>Upload Image</strong>
-                  <span>Square image works best for listings.</span>
-                </span>
-                <input id="category-image" type="file" accept="image/*" onChange={handleImageChange} />
-              </label>
-            </div>
-          </div>
-
-          <div className="catalog-field">
-            <label htmlFor="category-description">Description</label>
-            <textarea
-              id="category-description"
-              name="description"
-              value={formData.description}
-              onChange={handleInputChange}
-              placeholder="Describe what products belong to this category."
-              required
-            />
-          </div>
-
-          <div className="catalog-subpanel">
-            <h3>
-              <Layers size={15} /> Search Metadata
-            </h3>
-            <div className="catalog-form-grid">
+          <form className="catalog-form" onSubmit={handleSave} style={{ gap: '16px' }}>
+            <div className="catalog-form-grid" style={{ gap: '16px' }}>
               <div className="catalog-field">
-                <label htmlFor="category-meta-title">Meta Title</label>
-                <input
-                  id="category-meta-title"
-                  name="metaTitle"
-                  type="text"
-                  value={formData.metaTitle}
-                  onChange={handleInputChange}
-                  placeholder="Category page title"
-                />
+                <label htmlFor="category-name" style={{ fontSize: '12px', fontWeight: '600' }}>Category Name</label>
+                <input id="category-name" name="name" type="text" value={formData.name} onChange={handleInputChange} placeholder="e.g. Farm Tools & Machinery" style={{ padding: '6px 10px', fontSize: '13px' }} required />
               </div>
-
               <div className="catalog-field">
-                <label htmlFor="category-meta-description">Meta Description</label>
-                <input
-                  id="category-meta-description"
-                  name="metaDescription"
-                  type="text"
-                  value={formData.metaDescription}
-                  onChange={handleInputChange}
-                  placeholder="Short search description"
-                />
+                <label htmlFor="category-slug" style={{ fontSize: '12px', fontWeight: '600' }}>URL Slug</label>
+                <input id="category-slug" name="slug" type="text" value={formData.slug} onChange={handleInputChange} placeholder="farm-tools-machinery" style={{ padding: '6px 10px', fontSize: '13px' }} required />
               </div>
             </div>
-          </div>
 
-          <div className="catalog-actions">
-            <button type="submit" className="catalog-btn catalog-btn--primary">
-              <Save size={16} /> {isSaving ? 'Saving...' : 'Save Category'}
-            </button>
-            <button type="button" className="catalog-btn" onClick={() => navigate('/admin/catalog/categories')}>
-              Cancel
-            </button>
-          </div>
+            <div className="catalog-form-grid catalog-form-grid--three" style={{ gap: '16px' }}>
+              <div className="catalog-field">
+                <label htmlFor="category-order" style={{ fontSize: '12px', fontWeight: '600' }}>Display Order</label>
+                <input id="category-order" name="displayOrder" type="number" min="1" value={formData.displayOrder} onChange={handleInputChange} placeholder="1" style={{ padding: '6px 10px', fontSize: '13px' }} />
+              </div>
+              <div className="catalog-field">
+                <label htmlFor="category-status" style={{ fontSize: '12px', fontWeight: '600' }}>Status</label>
+                <select id="category-status" name="status" value={formData.status} onChange={handleInputChange} style={{ padding: '6px 10px', fontSize: '13px' }}>
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
+              </div>
+              <div className="catalog-field">
+                <label style={{ fontSize: '12px', fontWeight: '600' }}>Category Image</label>
+                <label className="catalog-upload" htmlFor="category-image" style={{ padding: '8px', gap: '10px' }}>
+                  <span className="catalog-upload__box" style={{ width: '48px', height: '48px' }}>
+                    {formData.image ? <img src={formData.image} alt="" /> : <Upload size={18} />}
+                  </span>
+                  <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <strong style={{ fontSize: '12px' }}>Upload Image</strong>
+                    <span style={{ fontSize: '10px' }}>Square image is recommended.</span>
+                  </span>
+                  <input id="category-image" type="file" accept="image/*" onChange={handleImageChange} style={{ display: 'none' }} />
+                </label>
+              </div>
+            </div>
+
+            <div className="catalog-field">
+              <label htmlFor="category-description" style={{ fontSize: '12px', fontWeight: '600' }}>Description</label>
+              <textarea id="category-description" name="description" value={formData.description} onChange={handleInputChange} placeholder="Describe what products belong to this category." style={{ padding: '8px 10px', fontSize: '13px', minHeight: '80px' }} required />
+            </div>
+
+            <div className="catalog-subpanel" style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', marginTop: '8px' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '700', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}><Layers size={14} /> Search Metadata</h3>
+              <div className="catalog-form-grid" style={{ gap: '16px' }}>
+                <div className="catalog-field">
+                  <label htmlFor="category-meta-title" style={{ fontSize: '12px', fontWeight: '600' }}>Meta Title</label>
+                  <input id="category-meta-title" name="metaTitle" type="text" value={formData.metaTitle} onChange={handleInputChange} placeholder="Category page title" style={{ padding: '6px 10px', fontSize: '13px' }} />
+                </div>
+                <div className="catalog-field">
+                  <label htmlFor="category-meta-description" style={{ fontSize: '12px', fontWeight: '600' }}>Meta Description</label>
+                  <input id="category-meta-description" name="metaDescription" type="text" value={formData.metaDescription} onChange={handleInputChange} placeholder="Short search description" style={{ padding: '6px 10px', fontSize: '13px' }} />
+                </div>
+              </div>
+            </div>
           </form>
         )}
       </section>

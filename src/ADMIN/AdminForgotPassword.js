@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import axios from 'axios';
 import './AdminForgotPassword.css';
 
-const ADMIN_AUTH_API = "https://satin-eastcoast-musky.ngrok-free.dev/api/Auth";
+const ADMIN_AUTH_API = "https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Auth";
 const HEADERS  = { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' };
 
 const AdminForgotPassword = () => {

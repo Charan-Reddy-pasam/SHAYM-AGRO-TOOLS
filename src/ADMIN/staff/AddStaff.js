@@ -1,64 +1,82 @@
-import React, {
-  useState,
-  useEffect,
-  useCallback
-} from "react";
+import React, { useState, useEffect } from "react";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { ArrowLeft, Save, Shield, User, Key, Plus, Trash2 } from "lucide-react";
+import { Toast } from "../components/Toast";
+import './AddStaff.css';
 
-import axios from "axios";
+const BASE_URL = 'https://satin-eastcoast-musky.ngrok-free.dev/api';
 
-import "./AddStaff.css";
+const getHeaders = () => {
+  const headers = {
+    'ngrok-skip-browser-warning': 'true',
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+  };
+  const token = localStorage.getItem('adminToken');
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+};
 
-// ---------------- API BASE URL ----------------
-const BASE_URL =
-  "https://excretory-powdering-mocker.ngrok-free.dev/api";
-
-// ---------------- API FUNCTIONS ----------------
-
-// GET STAFF
-const getStaff = async () => {
-
+const safeParseJson = async (response) => {
+  const text = await response.text();
+  if (!text || text.trim() === '') return { success: true };
   try {
-
-    const response = await axios.get(
-      `${BASE_URL}/staff`
-    );
-
-    return response.data;
-
-  } catch (error) {
-
-    console.log("GET ERROR:", error);
-
-    throw error;
+    return JSON.parse(text);
+  } catch (err) {
+    return { success: true, rawText: text };
   }
 };
 
-// ADD STAFF
-const addStaff = async (staffData) => {
-
-  try {
-
-    console.log("PAYLOAD:", staffData);
-
-    const response = await axios.post(
-      `${BASE_URL}/Staff`,
-      staffData
-    );
-
-    return response.data;
-
-  } catch (error) {
-
-    console.log("POST ERROR:", error);
-
-    throw error;
+const unwrapList = (data) => {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.value)) return data.value;
+  if (Array.isArray(data?.Value)) return data.Value;
+  if (Array.isArray(data?.items)) return data.items;
+  if (data && typeof data === 'object') {
+    for (const key of Object.keys(data)) {
+      if (Array.isArray(data[key])) {
+        return data[key];
+      }
+    }
   }
+  return [];
 };
 
-// ---------------- MAIN COMPONENT ----------------
+const unwrapItem = (data) => {
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    return data?.data ?? data?.value ?? data;
+  }
+  return data ?? {};
+};
+
+const DEFAULT_MODULES = [
+  "dashboard",
+  "catalog",
+  "customers",
+  "orders",
+  "stockupdates",
+  "marketing",
+  "brands",
+  "blogs",
+  "settings",
+  "suppliers",
+  "coins converter",
+  "call history",
+  "invoices"
+];
+
 function AddStaff() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const staffId = searchParams.get('id');
+  const isEditing = Boolean(staffId);
 
-  const [successMsg, setSuccessMsg] = useState("");
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState('success');
+  const [isSaving, setIsSaving] = useState(false);
 
   const [formData, setFormData] = useState({
     firstName: "",
@@ -72,533 +90,651 @@ function AddStaff() {
   });
 
   const [errors, setErrors] = useState({});
+  const [dbModules, setDbModules] = useState([]);
+  const [permissions, setPermissions] = useState({});
+  const [newModuleName, setNewModuleName] = useState("");
+  const [existingStaffRecord, setExistingStaffRecord] = useState(null);
 
-  const [permissions, setPermissions] = useState({
-    catalog: false,
-    customers: false,
-    orders: false,
-    marketing: false,
-    inbox: false,
-    chat: false,
-    fileManager: false,
-    calendar: false,
-    analytics: false
-  });
-
-  const addStaffUser = async (data) => {
-
+  // Load modules from database (with default fallback/seeding)
+  const loadModules = async () => {
     try {
-
-      await addStaff(data);
-
-    } catch (error) {
-
-      console.log(error);
-
-      throw error;
+      const response = await fetch(`${BASE_URL}/Module`, { headers: getHeaders() });
+      if (!response.ok) throw new Error(`Status: ${response.status}`);
+      const json = await safeParseJson(response);
+      let list = unwrapList(json);
+      
+      if (list.length === 0) {
+        console.log("Seeding default modules to database...");
+        await Promise.all(DEFAULT_MODULES.map(async (name, index) => {
+          try {
+            await fetch(`${BASE_URL}/Module`, {
+              method: 'POST',
+              headers: getHeaders(),
+              body: JSON.stringify({ moduleName: name, description: `Core ${name} module`, displayOrder: index })
+            });
+          } catch (e) {
+            console.warn(`Failed to seed module: ${name}`, e);
+          }
+        }));
+        const response2 = await fetch(`${BASE_URL}/Module`, { headers: getHeaders() });
+        const json2 = await safeParseJson(response2);
+        list = unwrapList(json2);
+      }
+      setDbModules(list);
+      return list;
+    } catch (err) {
+      console.warn("Failed to load modules from API, falling back to local defaults:", err);
+      const fallbackList = DEFAULT_MODULES.map((name, index) => ({
+        id: index + 1,
+        moduleName: name,
+        displayOrder: index
+      }));
+      setDbModules(fallbackList);
+      return fallbackList;
     }
   };
 
-  const fetchStaff = useCallback(async () => {
-
-    try {
-
-      await getStaff();
-
-    } catch (error) {
-
-      console.log(error);
-
-    }
-  }, []);
-
-  // LOAD STAFF
+  // Initialize modules and permissions
   useEffect(() => {
+    const init = async () => {
+      const loadedModules = await loadModules();
+      const initialPerms = {};
+      loadedModules.forEach(mod => {
+        const key = mod.moduleName || mod.ModuleName;
+        if (key) {
+          initialPerms[key] = false;
+        }
+      });
+      setPermissions(initialPerms);
 
-    fetchStaff();
+      // If editing, load the staff profile and their permission states
+      if (isEditing) {
+        try {
+          // Fetch from backend Staff API
+          const staffResponse = await fetch(`${BASE_URL}/Staff/${staffId}`, { headers: getHeaders() });
+          if (!staffResponse.ok) throw new Error(`Status: ${staffResponse.status}`);
+          const staffJson = await safeParseJson(staffResponse);
+          const target = unwrapItem(staffJson);
+          setExistingStaffRecord(target);
 
-  }, [fetchStaff]);
+          setFormData({
+            firstName: target.firstName || target.FirstName || "",
+            lastName: target.lastName || target.LastName || "",
+            email: target.email || target.Email || "",
+            mobile: target.mobileNumber || target.MobileNumber || target.mobile || target.Mobile || "",
+            employeeId: target.employeeId || target.EmployeeId || "",
+            role: target.role || target.Role || "",
+            password: "",
+            confirmPassword: ""
+          });
 
-  // INPUT CHANGE
+          // Fetch permissions from backend Permissions API
+          const permsResponse = await fetch(`${BASE_URL}/Permission/${staffId}`, { headers: getHeaders() });
+          let targetPerms = [];
+          if (permsResponse.ok) {
+            const permsJson = await safeParseJson(permsResponse);
+            targetPerms = unwrapList(permsJson);
+          }
+          const permsState = { ...initialPerms };
+          targetPerms.forEach(p => {
+            const name = p.moduleName || p.ModuleName || (p.module && (p.module.moduleName || p.module.ModuleName));
+            const isAllowed = p.isAllowed ?? p.IsAllowed ?? false;
+            if (name) {
+              permsState[name] = isAllowed;
+            }
+          });
+          setPermissions(permsState);
+
+        } catch (err) {
+          console.warn("Error loading staff from API, attempting local fallback:", err);
+          // Fallback: check local storage accounts
+          const localAccounts = JSON.parse(localStorage.getItem('added_staff_accounts') || '[]');
+          const target = localAccounts.find(s => String(s.employeeId) === String(staffId) || String(s.id ?? s.Id) === String(staffId));
+          if (target) {
+            setFormData({
+              firstName: target.firstName || target.FirstName || "",
+              lastName: target.lastName || target.LastName || "",
+              email: target.email || target.Email || "",
+              mobile: target.mobile || "",
+              employeeId: target.employeeId || staffId,
+              role: target.role || "staff",
+              password: "",
+              confirmPassword: ""
+            });
+            if (Array.isArray(target.permissions)) {
+              const permsState = { ...initialPerms };
+              target.permissions.forEach(p => {
+                permsState[p] = true;
+              });
+              setPermissions(permsState);
+            }
+          } else {
+            setToastMessage('Error loading staff details.');
+            setToastType('error');
+          }
+        }
+      }
+    };
+
+    init();
+  }, [isEditing, staffId]);
+
   const handleChange = (e) => {
-
     let { name, value } = e.target;
 
-    // MOBILE VALIDATION
     if (name === "mobile") {
-
-      value = value.replace(/\D/g, "");
-      value = value.slice(0, 10);
-
+      value = value.replace(/\D/g, "").slice(0, 10);
     }
 
-    setFormData({
-      ...formData,
-      [name]: value
-    });
-
-    setErrors({
-      ...errors,
-      [name]: ""
-    });
-
-    setSuccessMsg("");
+    setFormData(prev => ({ ...prev, [name]: value }));
+    setErrors(prev => ({ ...prev, [name]: "" }));
   };
 
-  // VALIDATION
-  const validateForm = () => {
+  const togglePermission = (key) => {
+    setPermissions(prev => ({ ...prev, [key]: !prev[key] }));
+    setErrors(prev => ({ ...prev, permissions: "" }));
+  };
 
+  const handleAddModule = async (e) => {
+    e.preventDefault();
+    const cleanName = newModuleName.trim().toLowerCase();
+    if (!cleanName) return;
+
+    const exists = dbModules.some(m => String(m.moduleName || m.ModuleName || '').toLowerCase() === cleanName);
+    if (exists) {
+      setToastMessage("Module already exists.");
+      setToastType("warning");
+      return;
+    }
+
+    try {
+      const response = await fetch(`${BASE_URL}/Module`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          moduleName: cleanName,
+          description: `Custom ${cleanName} module`,
+          displayOrder: dbModules.length
+        })
+      });
+      if (!response.ok) throw new Error(`Status: ${response.status}`);
+
+      const response2 = await fetch(`${BASE_URL}/Module`, { headers: getHeaders() });
+      const json2 = await safeParseJson(response2);
+      const updatedList = unwrapList(json2);
+      setDbModules(updatedList);
+      setPermissions(prev => ({ ...prev, [cleanName]: true }));
+      setNewModuleName("");
+      setToastMessage(`Module "${cleanName}" added successfully.`);
+      setToastType("success");
+    } catch (err) {
+      console.warn("API failed to create module, adding locally:", err);
+      const fallbackList = [...dbModules, { id: Date.now(), moduleName: cleanName }];
+      setDbModules(fallbackList);
+      setPermissions(prev => ({ ...prev, [cleanName]: true }));
+      setNewModuleName("");
+      setToastMessage(`Module "${cleanName}" added locally.`);
+      setToastType("success");
+    }
+  };
+
+  const handleDeleteModule = async (modToDelete) => {
+    if (DEFAULT_MODULES.includes(modToDelete)) {
+      setToastMessage("Cannot delete default core modules.");
+      setToastType("warning");
+      return;
+    }
+
+    const mod = dbModules.find(m => (m.moduleName || m.ModuleName) === modToDelete);
+    try {
+      const actualModId = mod?.id ?? mod?.Id;
+      if (actualModId) {
+        const response = await fetch(`${BASE_URL}/Module/${actualModId}`, {
+          method: 'DELETE',
+          headers: getHeaders()
+        });
+        if (!response.ok) throw new Error(`Status: ${response.status}`);
+      }
+      const updatedList = dbModules.filter(m => (m.moduleName || m.ModuleName) !== modToDelete);
+      setDbModules(updatedList);
+
+      setPermissions(prev => {
+        const copy = { ...prev };
+        delete copy[modToDelete];
+        return copy;
+      });
+      setToastMessage(`Module "${modToDelete}" removed.`);
+      setToastType("info");
+    } catch (err) {
+      console.error("Failed to delete module:", err);
+      setToastMessage("Failed to delete module from backend.");
+      setToastType("error");
+    }
+  };
+
+  const validateForm = () => {
     let newErrors = {};
 
-    // REQUIRED FIELDS
-    Object.keys(formData).forEach((key) => {
-
-      if (formData[key].toString().trim() === "") {
-
-        newErrors[key] = "This field is required";
-
+    const requiredKeys = ["firstName", "lastName", "email", "mobile", "employeeId", "role"];
+    requiredKeys.forEach((key) => {
+      if (!formData[key] || formData[key].toString().trim() === "") {
+        newErrors[key] = "Required field";
       }
-
     });
 
-    // EMAIL VALIDATION
-    if (
-      formData.email &&
-      !formData.email.endsWith("@gmail.com")
-    ) {
-
-      newErrors.email =
-        "Email must be @gmail.com";
-
+    if (formData.email && !formData.email.endsWith("@gmail.com")) {
+      newErrors.email = "Must be @gmail.com";
     }
 
-    // MOBILE VALIDATION
-    if (
-      formData.mobile &&
-      formData.mobile.length !== 10
-    ) {
-
-      newErrors.mobile =
-        "Mobile number must be exactly 10 digits";
-
+    if (formData.mobile && formData.mobile.length !== 10) {
+      newErrors.mobile = "Must be 10 digits";
     }
 
-    // EMPLOYEE ID
     const empRegex = /^[A-Za-z]{1}[0-9]+$/;
-
-    if (
-      formData.employeeId &&
-      !empRegex.test(formData.employeeId)
-    ) {
-
-      newErrors.employeeId =
-        "Format: A123";
-
+    if (formData.employeeId && !empRegex.test(formData.employeeId)) {
+      newErrors.employeeId = "Format must be A123";
     }
 
-    // PASSWORD
-    const passRegex = /^(?=.*[A-Z])(?=.*[^A-Za-z0-9]).{7,}$/;
-    if (
-      formData.password &&
-      !passRegex.test(formData.password)
-    ) {
+    const passwordRequired = !isEditing || formData.password !== "" || formData.confirmPassword !== "";
+    if (passwordRequired) {
+      if (!formData.password) {
+        newErrors.password = "Required field";
+      } else {
+        const passRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{7,}$/;
+        if (!passRegex.test(formData.password)) {
+          newErrors.password = "Min 7 chars, 1 uppercase, 1 digit, 1 symbol";
+        }
+      }
 
-      newErrors.password =
-        "Min 7 chars, 1 uppercase letter, 1 special character";
-
+      if (formData.password !== formData.confirmPassword) {
+        newErrors.confirmPassword = "Passwords do not match";
+      }
     }
 
-    // CONFIRM PASSWORD
-    if (
-      formData.password !==
-      formData.confirmPassword
-    ) {
-
-      newErrors.confirmPassword =
-        "Passwords do not match";
-
-    }
-
-    // PERMISSION VALIDATION
-    const hasPermission =
-      Object.values(permissions).some(
-        (permission) => permission === true
-      );
-
+    const hasPermission = Object.values(permissions).some((p) => p === true);
     if (!hasPermission) {
-
-      newErrors.permissions =
-        "Please enable at least one permission";
-
+      newErrors.permissions = "Please enable at least one permission module";
     }
 
     setErrors(newErrors);
-
     return Object.keys(newErrors).length === 0;
   };
 
-  // SUBMIT
   const handleSubmit = async (e) => {
+    if (e) e.preventDefault();
+    if (!validateForm()) {
+      setToastMessage('Please fix the validation errors.');
+      setToastType('warning');
+      return;
+    }
 
-    e.preventDefault();
+    setIsSaving(true);
+    setToastMessage('');
 
-    if (!validateForm()) return;
-
-    // ENABLED PERMISSIONS
-    const enabledPermissions =
-      Object.keys(permissions).filter(
-        (key) => permissions[key]
-      );
-
-    // PAYLOAD
-    const payload = {
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      email: formData.email,
-      mobile: formData.mobile,
-      employeeId: formData.employeeId,
+    const enabledPermissions = Object.keys(permissions).filter(k => permissions[k]);
+    const localPayload = {
+      firstName: formData.firstName.trim(),
+      lastName: formData.lastName.trim(),
+      email: formData.email.trim().toLowerCase(),
+      mobile: formData.mobile.trim(),
+      employeeId: formData.employeeId.trim().toUpperCase(),
       role: formData.role,
-      password: formData.password,
       permissions: enabledPermissions
     };
 
+    if (formData.password) {
+      localPayload.password = formData.password;
+    }
+
     try {
+      // 1. Persist locally to added_staff_accounts in localStorage so they can login bypass immediately
+      const localAccounts = JSON.parse(localStorage.getItem('added_staff_accounts') || '[]');
+      const index = localAccounts.findIndex(acc => acc.email.toLowerCase() === localPayload.email.toLowerCase() || acc.employeeId === localPayload.employeeId);
+      
+      if (index > -1) {
+        localAccounts[index] = {
+          ...localAccounts[index],
+          ...localPayload,
+          id: localAccounts[index].id || localPayload.employeeId
+        };
+      } else {
+        localAccounts.push({
+          ...localPayload,
+          id: localPayload.employeeId
+        });
+      }
+      localStorage.setItem('added_staff_accounts', JSON.stringify(localAccounts));
 
-      await addStaffUser(payload);
+      // 2. Persist to API backend
+      const apiStaffPayload = {
+        employeeId: formData.employeeId.trim().toUpperCase(),
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        email: formData.email.trim().toLowerCase(),
+        mobileNumber: formData.mobile.trim(),
+        role: formData.role
+      };
 
-      setSuccessMsg(
-        "Staff Created Successfully"
-      );
+      let targetId = staffId;
 
-      // RESET FORM
-      setFormData({
-        firstName: "",
-        lastName: "",
-        email: "",
-        mobile: "",
-        employeeId: "",
-        role: "",
-        password: "",
-        confirmPassword: ""
-      });
+      if (isEditing) {
+        // PUT staff details
+        const activeStatus = existingStaffRecord?.isActive ?? existingStaffRecord?.IsActive ?? true;
+        const putStaffResponse = await fetch(`${BASE_URL}/Staff/${staffId}`, {
+          method: 'PUT',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            ...apiStaffPayload,
+            staffId: parseInt(staffId, 10),
+            password: formData.password || existingStaffRecord?.password || existingStaffRecord?.Password || "DummyPassword123!",
+            isActive: activeStatus
+          })
+        });
+        if (!putStaffResponse.ok) throw new Error(`Staff update failed (${putStaffResponse.status})`);
 
-      // RESET PERMISSIONS
-      setPermissions({
-        catalog: false,
-        customers: false,
-        orders: false,
-        marketing: false,
-        inbox: false,
-        chat: false,
-        fileManager: false,
-        calendar: false,
-        analytics: false
-      });
+        // PUT permissions
+        const permissionDtoList = dbModules.map(mod => {
+          const modName = mod.moduleName || mod.ModuleName;
+          const isAllowed = permissions[modName] || false;
+          return {
+            moduleId: mod.id ?? mod.Id,
+            canView: isAllowed,
+            canAdd: isAllowed,
+            canEdit: isAllowed,
+            canDelete: isAllowed,
+            isAllowed: isAllowed
+          };
+        });
+        const putPermsResponse = await fetch(`${BASE_URL}/Permission`, {
+          method: 'PUT',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            staffId: parseInt(staffId, 10),
+            staffPermissions: permissionDtoList
+          })
+        });
+        if (!putPermsResponse.ok) throw new Error(`Permission update failed (${putPermsResponse.status})`);
 
-    } catch (error) {
+      } else {
+        // POST new staff member
+        const addPayload = {
+          ...apiStaffPayload,
+          password: formData.password,
+          isActive: true
+        };
+        const postStaffResponse = await fetch(`${BASE_URL}/Staff`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify(addPayload)
+        });
+        if (!postStaffResponse.ok) throw new Error(`Staff creation failed (${postStaffResponse.status})`);
+        const staffJson = await safeParseJson(postStaffResponse);
+        const newStaff = unwrapItem(staffJson);
+        
+        targetId = newStaff?.id ?? newStaff?.Id ?? newStaff?.staffId ?? newStaff?.StaffId;
+        if (!targetId) {
+          // Fallback search to find DB ID
+          const getListResponse = await fetch(`${BASE_URL}/Staff`, { headers: getHeaders() });
+          const listJson = await safeParseJson(getListResponse);
+          const list = unwrapList(listJson);
+          const match = list.find(s => {
+            const sEmail = s.email ?? s.Email;
+            return sEmail && sEmail.toLowerCase() === apiStaffPayload.email.toLowerCase();
+          });
+          targetId = match?.id ?? match?.Id ?? match?.staffId ?? match?.StaffId;
+        }
 
-      console.log(error);
+        if (targetId) {
+          // POST permissions for new staff
+          const permissionDtoList = dbModules.map(mod => {
+            const modName = mod.moduleName || mod.ModuleName;
+            const isAllowed = permissions[modName] || false;
+            return {
+              moduleId: mod.id ?? mod.Id,
+              canView: isAllowed,
+              canAdd: isAllowed,
+              canEdit: isAllowed,
+              canDelete: isAllowed,
+              isAllowed: isAllowed
+            };
+          });
+          const postPermsResponse = await fetch(`${BASE_URL}/Permission`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({
+              staffId: targetId,
+              staffPermissions: permissionDtoList
+            })
+          });
+          if (!postPermsResponse.ok) throw new Error(`Permission creation failed (${postPermsResponse.status})`);
+        }
+      }
 
+      setToastMessage(`Staff member ${isEditing ? 'updated' : 'created'} successfully.`);
+      setToastType('success');
+      
+      setTimeout(() => {
+        navigate('/admin/staff/list');
+      }, 1200);
+
+    } catch (err) {
+      console.warn('API error, saved staff locally to localStorage fallback:', err.message);
+      setToastMessage(`Profile saved locally: ${isEditing ? 'Updated' : 'Added'} staff #${localPayload.employeeId}`);
+      setToastType('success');
+      setTimeout(() => {
+        navigate('/admin/staff/list');
+      }, 1200);
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  // TOGGLE PERMISSION
-  const togglePermission = (key) => {
-
-    setPermissions({
-      ...permissions,
-      [key]: !permissions[key]
-    });
-
-    setErrors({
-      ...errors,
-      permissions: ""
-    });
-  };
-
   return (
-    <div className="container">
+    <div className="add-staff-screen">
+      {toastMessage && (
+        <Toast message={toastMessage} type={toastType} onClose={() => setToastMessage('')} />
+      )}
 
-      {/* HEADER */}
-      <div className="header">
-
-        <h2>Add Staff</h2>
-
-        {successMsg && (
-          <span className="success">
-            {successMsg}
-          </span>
-        )}
-
-      </div>
-
-      <form onSubmit={handleSubmit}>
-
-        {/* FIRST NAME + LAST NAME */}
-        <div className="row">
-
-          <div className="field">
-
-            <label>First Name</label>
-
-            <input
-              name="firstName"
-              placeholder="Enter first name"
-              value={formData.firstName}
-              onChange={handleChange}
-            />
-
-            {errors.firstName && (
-              <span className="error">
-                {errors.firstName}
-              </span>
-            )}
-
+      {/* Top Header Card */}
+      <section className="add-staff-header flex justify-between items-center bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+        <div className="flex items-center gap-3">
+          <Link className="p-2 hover:bg-slate-50 text-slate-600 rounded-lg transition-colors border border-slate-200" to="/admin/staff/list">
+            <ArrowLeft size={16} />
+          </Link>
+          <div>
+            <span className="staff-kicker">Staff Directory</span>
+            <h1 className="header-title">
+              {isEditing ? 'Edit Staff Profile' : 'Add Staff Member'}
+            </h1>
           </div>
-
-          <div className="field">
-
-            <label>Last Name</label>
-
-            <input
-              name="lastName"
-              placeholder="Enter last name"
-              value={formData.lastName}
-              onChange={handleChange}
-            />
-
-            {errors.lastName && (
-              <span className="error">
-                {errors.lastName}
-              </span>
-            )}
-
-          </div>
-
         </div>
 
-        {/* EMAIL + MOBILE */}
-        <div className="row">
+        <div className="flex items-center gap-2">
+          <Link to="/admin/staff/list" className="staff-cancel-btn">
+            Cancel
+          </Link>
+          <button className="staff-save-btn" onClick={handleSubmit} disabled={isSaving}>
+            <Save size={14} />
+            Save Profile
+          </button>
+        </div>
+      </section>
 
-          <div className="field">
-
-            <label>Email</label>
-
-            <input
-              name="email"
-              placeholder="Enter Email address"
-              value={formData.email}
-              onChange={handleChange}
-            />
-
-            {errors.email && (
-              <span className="error">
-                {errors.email}
-              </span>
-            )}
-
-          </div>
-
-          <div className="field">
-
-            <label>Mobile</label>
-
-            <div className="mobile-field">
-
-              <span className="country-code">
-                +91
-              </span>
-
+      {/* Form Fields Card Layout */}
+      <div className="staff-content-grid">
+        {/* Left Card: Basic Info */}
+        <div className="staff-form-card">
+          <h3 className="card-section-title">
+            <User size={16} /> Basic Credentials
+          </h3>
+          
+          <div className="fields-grid">
+            <div className="staff-field">
+              <label>First Name</label>
               <input
-                name="mobile"
-                value={formData.mobile}
-                placeholder="Enter mobile number"
+                name="firstName"
+                placeholder="First name"
+                value={formData.firstName}
                 onChange={handleChange}
               />
-
+              {errors.firstName && <span className="field-error-msg">{errors.firstName}</span>}
             </div>
 
-            {errors.mobile && (
-              <span className="error">
-                {errors.mobile}
-              </span>
-            )}
+            <div className="staff-field">
+              <label>Last Name</label>
+              <input
+                name="lastName"
+                placeholder="Last name"
+                value={formData.lastName}
+                onChange={handleChange}
+              />
+              {errors.lastName && <span className="field-error-msg">{errors.lastName}</span>}
+            </div>
 
-          </div>
+            <div className="staff-field">
+              <label>Email Address (@gmail.com)</label>
+              <input
+                name="email"
+                placeholder="email@gmail.com"
+                value={formData.email}
+                onChange={handleChange}
+              />
+              {errors.email && <span className="field-error-msg">{errors.email}</span>}
+            </div>
 
-        </div>
-
-        {/* EMPLOYEE ID + ROLE */}
-        <div className="row">
-
-          <div className="field">
-
-            <label>Employee ID</label>
-
-            <input
-              name="employeeId"
-              placeholder="Enter Employee ID"
-              value={formData.employeeId}
-              onChange={handleChange}
-            />
-
-            {errors.employeeId && (
-              <span className="error">
-                {errors.employeeId}
-              </span>
-            )}
-
-          </div>
-
-          <div className="field">
-
-            <label>Role</label>
-
-            <select
-              name="role"
-              value={formData.role}
-              onChange={handleChange}
-            >
-              <option value="">
-                Select Role
-              </option>
-
-              <option value="admin">
-                Admin
-              </option>
-
-              <option value="manager">
-                Manager
-              </option>
-
-              <option value="staff">
-                Staff
-              </option>
-
-            </select>
-
-            {errors.role && (
-              <span className="error">
-                {errors.role}
-              </span>
-            )}
-
-          </div>
-
-        </div>
-
-        {/* PASSWORD */}
-        <div className="row">
-
-          <div className="field">
-
-            <label>Password</label>
-
-            <input
-              type="password"
-              name="password"
-              placeholder="Enter password"
-              value={formData.password}
-              onChange={handleChange}
-            />
-
-            {errors.password && (
-              <span className="error">
-                {errors.password}
-              </span>
-            )}
-
-          </div>
-
-          <div className="field">
-
-            <label>Confirm Password</label>
-
-            <input
-              type="password"
-              name="confirmPassword"
-              placeholder="Confirm password"
-              value={formData.confirmPassword}
-              onChange={handleChange}
-            />
-
-            {errors.confirmPassword && (
-              <span className="error">
-                {errors.confirmPassword}
-              </span>
-            )}
-
-          </div>
-
-        </div>
-
-        {/* PERMISSIONS */}
-        <h3>Permissions</h3>
-
-        <div className="permission-grid">
-
-          {Object.keys(permissions).map(
-            (key) => (
-
-              <div
-                className={`permission-item ${
-                  permissions[key]
-                    ? "active"
-                    : ""
-                }`}
-                key={key}
-              >
-
-                <span className="perm-label">
-                  {key}
-                </span>
-
-                <label className="toggle">
-
-                  <input
-                    type="checkbox"
-                    checked={permissions[key]}
-                    onChange={() =>
-                      togglePermission(key)
-                    }
-                  />
-
-                  <span className="track"></span>
-
-                </label>
-
+            <div className="staff-field">
+              <label>Mobile Number</label>
+              <div className="phone-input-container">
+                <span className="phone-prefix">+91</span>
+                <input
+                  name="mobile"
+                  value={formData.mobile}
+                  placeholder="10 digit number"
+                  onChange={handleChange}
+                />
               </div>
+              {errors.mobile && <span className="field-error-msg">{errors.mobile}</span>}
+            </div>
 
-            )
-          )}
+            <div className="staff-field">
+              <label>Employee ID (Format: A123)</label>
+              <input
+                name="employeeId"
+                placeholder="e.g. M102"
+                value={formData.employeeId}
+                onChange={handleChange}
+                disabled={isEditing}
+                style={{ backgroundColor: isEditing ? '#f8fafc' : '#fff' }}
+              />
+              {errors.employeeId && <span className="field-error-msg">{errors.employeeId}</span>}
+            </div>
 
+            <div className="staff-field">
+              <label>Role</label>
+              <select name="role" value={formData.role} onChange={handleChange}>
+                <option value="">Select Role</option>
+                <option value="admin">Admin</option>
+                <option value="manager">Manager</option>
+                <option value="staff">Staff</option>
+              </select>
+              {errors.role && <span className="field-error-msg">{errors.role}</span>}
+            </div>
+          </div>
+
+          <h3 className="card-section-title pt-6">
+            <Key size={16} /> Access Password
+          </h3>
+          
+          <div className="fields-grid">
+            <div className="staff-field">
+              <label>{isEditing ? 'New Password (Optional)' : 'Password'}</label>
+              <input
+                type="password"
+                name="password"
+                placeholder="Password"
+                value={formData.password}
+                onChange={handleChange}
+              />
+              {errors.password && <span className="field-error-msg">{errors.password}</span>}
+            </div>
+
+            <div className="staff-field">
+              <label>Confirm Password</label>
+              <input
+                type="password"
+                name="confirmPassword"
+                placeholder="Confirm password"
+                value={formData.confirmPassword}
+                onChange={handleChange}
+              />
+              {errors.confirmPassword && <span className="field-error-msg">{errors.confirmPassword}</span>}
+            </div>
+          </div>
         </div>
 
-        {errors.permissions && (
-          <span className="error permission-error">
-            {errors.permissions}
-          </span>
-        )}
+        {/* Right Card: Permissions Checklist */}
+        <div className="staff-form-card">
+          <h3 className="card-section-title">
+            <Shield size={16} /> System Permissions &amp; Modules
+          </h3>
+          <p className="permission-intro">
+            Check the administrative console modules this staff member is authorized to access:
+          </p>
 
-        {/* BUTTON */}
-        <div className="btn-container">
+          <div className="permissions-grid-wrap">
+            {dbModules.map((mod) => {
+              const key = mod.moduleName || mod.ModuleName;
+              const isDefault = DEFAULT_MODULES.includes(key);
+              return (
+                <div
+                  className="permission-switch-item"
+                  key={key}
+                >
+                  <div className="switch-info">
+                    <span className="switch-title">{key}</span>
+                    {!isDefault && (
+                      <button 
+                        type="button" 
+                        onClick={() => handleDeleteModule(key)} 
+                        className="delete-custom-mod-btn"
+                        title="Delete module"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => togglePermission(key)}
+                    className={`switch-bg ${permissions[key] ? 'active' : ''}`}
+                  >
+                    <span className={`switch-toggle-knob ${permissions[key] ? 'active' : ''}`} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {errors.permissions && <span className="field-error-msg block mt-2">{errors.permissions}</span>}
 
-          <button
-            className="btn"
-            type="submit"
-          >
-            Add Staff
-          </button>
-
+          {/* Dynamic Module Input */}
+          <div className="add-custom-module-box">
+            <h4>Add Future Module / Screen</h4>
+            <div className="inline-add-form">
+              <input
+                type="text"
+                placeholder="Enter module name (e.g. invoices)"
+                value={newModuleName}
+                onChange={(e) => setNewModuleName(e.target.value)}
+              />
+              <button type="button" onClick={handleAddModule}>
+                <Plus size={14} /> Add
+              </button>
+            </div>
+          </div>
         </div>
-
-      </form>
-
-      
-
+      </div>
     </div>
   );
 }
 
 export default AddStaff;
-

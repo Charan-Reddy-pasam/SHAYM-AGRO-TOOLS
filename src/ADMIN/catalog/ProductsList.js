@@ -1,18 +1,13 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
-import { AlertTriangle, Check, Edit, Filter, Package, Plus, Search, Star, Trash2 } from 'lucide-react';
-import {
-  getCategoryName,
-  getSubcategoryName,
-} from './catalogStore';
-import {
-  deleteProduct as deleteProductApi,
-  fetchCategories,
-  fetchProducts,
-  fetchSubcategories,
-  searchProducts,
-} from './productsApi';
+import { Link as RouterLink } from 'react-router-dom';
+import { Check, Filter, Package, Plus, Search, Star, AlertTriangle } from 'lucide-react';
+import { getCategoryName, getSubcategoryName } from './catalogStore';
+import { deleteProduct as deleteProductApi, fetchCategories, fetchProducts, fetchSubcategories, searchProducts } from './productsApi';
+import { OutlookDeleteButton, AnimatedEditButton, Pagination } from '../components/ActionButtons';
 import './adminModule.css';
+
+// alias so JSX isn't confused
+const Link = RouterLink;
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
 
@@ -42,19 +37,18 @@ const ProductsList = () => {
   const [isDeletingId, setIsDeletingId] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
-  // ── Load taxonomy & full product list on mount ────────────────────────────
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
   const loadAll = useCallback(async (isMounted) => {
     setIsLoading(true);
     setErrorMessage('');
     try {
-      const [cats, subcats] = await Promise.all([
-        fetchCategories(),
-        fetchSubcategories(),
-      ]);
+      const [cats, subcats] = await Promise.all([fetchCategories(), fetchSubcategories()]);
       if (!isMounted) return;
       setCategories(cats);
       setSubcategories(subcats);
-
       const apiProducts = await fetchProducts(cats, subcats);
       if (isMounted) setProducts(apiProducts);
     } catch (error) {
@@ -64,16 +58,9 @@ const ProductsList = () => {
     }
   }, []);
 
-  useEffect(() => {
-    let isMounted = true;
-    loadAll(isMounted);
-    return () => { isMounted = false; };
-  }, [loadAll]);
 
-  // ── API-side search (debounced 400 ms) ────────────────────────────────────
-  useEffect(() => {
-    if (!searchTerm.trim()) return; // empty → show all from local state
-
+    useEffect(() => {
+    if (!searchTerm.trim()) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
       setIsSearching(true);
@@ -86,7 +73,6 @@ const ProductsList = () => {
         if (!cancelled) setIsSearching(false);
       }
     }, 400);
-
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -111,6 +97,15 @@ const ProductsList = () => {
       return matchesCategory && matchesStatus;
     });
   }, [products, selectedCategoryId, selectedStatus]);
+
+  // Reset page on filter change
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, selectedCategoryId, selectedStatus]);
+
+  // Pagination calculations
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentPageProducts = filteredProducts.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
 
   // ── Delete ────────────────────────────────────────────────────────────────
   const handleDelete = async (id) => {
@@ -222,81 +217,66 @@ const ProductsList = () => {
             <tbody>
               {busy && (
                 <tr>
-                  <td colSpan="10" className="catalog-center-cell">
+                  <td colSpan="10" className="catalog-center-cell" style={{ fontSize: '12px', padding: '16px' }}>
                     {isLoading ? 'Loading products from API…' : 'Searching…'}
                   </td>
                 </tr>
               )}
 
-              {!busy && filteredProducts.map((product) => (
-                <tr key={product.id}>
-                  <td>
-                    <span className="catalog-badge">
-                      <Package size={14} /> #{product.id}
+              {!busy && currentPageProducts.map((product) => (
+                <tr key={product.id} style={{ fontSize: '12px' }}>
+                  <td style={{ padding: '5px 8px' }}>
+                    <span className="catalog-badge" style={{ fontSize: '10px' }}>
+                      <Package size={11} /> #{product.id}
                     </span>
-                    <div className="catalog-table__title">{product.name}</div>
-                    <div className="catalog-table__muted">
-                      {product.brand || 'Brand not set'} · {product.specifications?.weight || 'Weight N/A'}
+                    <div className="catalog-table__title" style={{ fontSize: '12px', fontWeight: '600' }}>{product.name}</div>
+                    <div className="catalog-table__muted" style={{ fontSize: '10px' }}>
+                      {product.brand || 'No brand'} · {product.specifications?.weight || 'N/A'}
                     </div>
                   </td>
-                  <td className="catalog-path">{product.sku || '—'}</td>
-                  <td>{getCategoryName(categories, product.categoryId)}</td>
-                  <td>{getSubcategoryName(subcategories, product.subcategoryId)}</td>
-                  <td className="catalog-number-cell">
+                  <td className="catalog-path" style={{ padding: '5px 8px', fontSize: '11px' }}>{product.sku || '—'}</td>
+                  <td style={{ padding: '5px 8px', fontSize: '11px' }}>{getCategoryName(categories, product.categoryId)}</td>
+                  <td style={{ padding: '5px 8px', fontSize: '11px' }}>{getSubcategoryName(subcategories, product.subcategoryId)}</td>
+                  <td className="catalog-number-cell" style={{ padding: '5px 8px', fontSize: '11px' }}>
                     {formatCurrency(product.price)}
                     {Number(product.mrp) > Number(product.price) && (
-                      <div className="catalog-table__muted">
+                      <div className="catalog-table__muted" style={{ fontSize: '10px' }}>
                         MRP {formatCurrency(product.mrp)}
                       </div>
                     )}
                   </td>
-                  <td>
-                    <span
-                      className={`catalog-badge ${
-                        Number(product.mrp) > Number(product.price) ? 'catalog-badge--low' : ''
-                      }`}
-                    >
+                  <td style={{ padding: '5px 8px' }}>
+                    <span className={`catalog-badge ${Number(product.mrp) > Number(product.price) ? 'catalog-badge--low' : ''}`} style={{ fontSize: '10px' }}>
                       {getDiscountLabel(product)}
                     </span>
                   </td>
-                  <td>
-                    <span className="catalog-badge">
-                      <Star size={13} fill="currentColor" />{' '}
+                  <td style={{ padding: '5px 8px' }}>
+                    <span className="catalog-badge" style={{ fontSize: '10px' }}>
+                      <Star size={11} fill="currentColor" />{' '}
                       {Number(product.rating || 0).toFixed(1)}
                     </span>
-                    <div className="catalog-table__muted">
+                    <div className="catalog-table__muted" style={{ fontSize: '10px' }}>
                       {Number(product.totalReviews || 0)} reviews
                     </div>
                   </td>
-                  <td className="catalog-center-cell">{product.stock}</td>
-                  <td>
-                    <span className={`catalog-badge ${getStatusClass(product.status)}`}>
-                      {product.status === 'In Stock' ? (
-                        <Check size={13} />
-                      ) : (
-                        <AlertTriangle size={13} />
-                      )}
+                  <td className="catalog-center-cell" style={{ padding: '5px 8px', fontSize: '11px' }}>{product.stock}</td>
+                  <td style={{ padding: '5px 8px' }}>
+                    <span className={`catalog-badge ${getStatusClass(product.status)}`} style={{ fontSize: '10px' }}>
+                      {product.status === 'In Stock' ? <Check size={11} /> : <AlertTriangle size={11} />}
                       {product.status}
                     </span>
                   </td>
-                  <td>
+                  <td style={{ padding: '5px 8px' }}>
                     <div className="catalog-inline-actions">
-                      <Link
+                      <AnimatedEditButton
                         to={`/admin/catalog/products-form?id=${product.id}`}
-                        className="action-icon-btn action-icon-btn--edit"
                         title="Edit product"
-                      >
-                        <Edit size={16} />
-                      </Link>
-                      <button
-                        type="button"
-                        className="action-icon-btn action-icon-btn--delete"
+                      />
+                      <OutlookDeleteButton
                         onClick={() => handleDelete(product.id)}
                         disabled={isDeletingId === product.id}
                         title="Delete product"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      />
                     </div>
                   </td>
                 </tr>
@@ -304,7 +284,7 @@ const ProductsList = () => {
 
               {!busy && !filteredProducts.length && (
                 <tr>
-                  <td colSpan="10" className="catalog-center-cell">
+                  <td colSpan="10" className="catalog-center-cell" style={{ fontSize: '12px', padding: '16px' }}>
                     No products match your filters.
                   </td>
                 </tr>
@@ -312,6 +292,14 @@ const ProductsList = () => {
             </tbody>
           </table>
         </div>
+
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={filteredProducts.length}
+          itemsPerPage={itemsPerPage}
+        />
       </section>
     </div>
   );

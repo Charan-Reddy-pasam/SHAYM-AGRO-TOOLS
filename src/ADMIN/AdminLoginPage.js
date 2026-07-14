@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './AdminLoginPage.css';
 
-const ADMIN_AUTH_API = "https://satin-eastcoast-musky.ngrok-free.dev/api/Auth";
+const ADMIN_AUTH_API = "https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Auth";
 const HEADERS  = { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' };
 const REQUEST_TIMEOUT = 8000;
 
@@ -44,7 +44,132 @@ const AdminLoginPage = () => {
     setIsLoading(true);
     setError('');
 
+    // Check if user is a locally added staff member
+    const localAccounts = JSON.parse(localStorage.getItem('added_staff_accounts') || '[]');
+    const matchedStaff = localAccounts.find(acc => acc.email.toLowerCase() === email.trim().toLowerCase());
+
+    if (matchedStaff) {
+      if (matchedStaff.password === password) {
+        setIsLoading(false);
+        navigate('/admin/verify-otp', {
+          state: {
+            email: email.trim(),
+            password,
+            fromLogin: true,
+            localStaff: matchedStaff
+          }
+        });
+        return;
+      } else {
+        setIsLoading(false);
+        setError('Invalid email or password. Please try again.');
+        return;
+      }
+    }
+
+    // Helper function to fetch profile & permissions from new API
+    const fetchProfileAndPermissions = async (token, userEmail) => {
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'ngrok-skip-browser-warning': 'true',
+        'Content-Type': 'application/json'
+      };
+
+      let profile = null;
+      try {
+        const res = await axios.get('https://satin-eastcoast-musky.ngrok-free.dev/api/Auth/profile', { headers, timeout: 5000 });
+        if (res.data) {
+          profile = res.data.data || res.data.value || res.data;
+        }
+      } catch (e) {
+        console.warn('Auth profile fetch failed, trying Staff profile:', e.message);
+        try {
+          const res = await axios.get('https://satin-eastcoast-musky.ngrok-free.dev/api/Staff/profile', { headers, timeout: 5000 });
+          if (res.data) {
+            profile = res.data.data || res.data.value || res.data;
+          }
+        } catch (e2) {
+          console.warn('Staff profile fetch failed:', e2.message);
+        }
+      }
+
+      let permissions = [];
+      try {
+        const res = await axios.get('https://satin-eastcoast-musky.ngrok-free.dev/api/Permission/my-permissions', { headers, timeout: 5000 });
+        const permsData = res.data?.data || res.data?.value || res.data;
+        if (Array.isArray(permsData)) {
+          permsData.forEach(p => {
+            const name = p.moduleName || p.ModuleName || (p.module && (p.module.moduleName || p.module.ModuleName)) || (typeof p === 'string' ? p : '');
+            if (name) {
+              permissions.push(name.toLowerCase());
+            }
+          });
+        } else if (permsData && typeof permsData === 'object') {
+          Object.keys(permsData).forEach(k => {
+            if (permsData[k] === true) {
+              permissions.push(k.toLowerCase());
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('Permissions fetch failed:', e.message);
+      }
+
+      const role = (profile?.role || profile?.Role || 'staff').toLowerCase();
+      if (permissions.length === 0) {
+        if (role === 'super admin' || userEmail.toLowerCase().trim() === 'charanbhaskar4455@gmail.com') {
+          permissions = ["dashboard", "catalog", "customers", "orders", "stockupdates", "marketing", "brands", "blogs", "settings", "suppliers", "coins converter", "invoices", "call history", "staff"];
+        } else if (role === 'admin') {
+          permissions = ["dashboard", "catalog", "customers", "orders", "stockupdates", "marketing", "brands", "blogs", "settings", "suppliers", "coins converter", "invoices", "staff"];
+        } else if (role === 'manager') {
+          permissions = ["dashboard", "catalog", "customers", "orders", "stockupdates", "marketing", "brands", "blogs", "settings", "suppliers", "coins converter", "invoices"];
+        } else {
+          permissions = ["dashboard", "catalog", "customers", "orders", "call history", "invoices", "stockupdates", "marketing", "brands", "settings", "suppliers"];
+        }
+      }
+
+      return { profile, permissions };
+    };
+
     try {
+      // 1. First, try authentication on the new API target (Direct Login, No OTP)
+      try {
+        console.log("Attempting login via new API...");
+        const newResponse = await axios.post(
+          "https://satin-eastcoast-musky.ngrok-free.dev/api/Auth/login",
+          buildLoginPayload(email, password),
+          { headers: HEADERS, timeout: REQUEST_TIMEOUT }
+        );
+
+        const newData = newResponse.data;
+        if (newData && (newData.status === true || newData.success === true || (newData.success === undefined && newData.token))) {
+          const token = newData?.token || newData?.accessToken || newData?.Token || newData?.data?.token || newData?.data?.accessToken;
+          if (token) {
+            console.log("New API login success. Fetching profile & permissions...");
+            const { profile, permissions } = await fetchProfileAndPermissions(token, email);
+            
+            const firstName = profile?.firstName || profile?.FirstName || '';
+            const lastName = profile?.lastName || profile?.LastName || '';
+            const name = `${firstName} ${lastName}`.trim() || email.split('@')[0];
+            const role = profile?.role || profile?.Role || 'admin';
+
+            localStorage.setItem('isAdmin', 'true');
+            localStorage.setItem('adminToken', token);
+            localStorage.setItem('adminEmail', email.trim());
+            localStorage.setItem('adminName', name);
+            localStorage.setItem('adminRole', role.toLowerCase());
+            localStorage.setItem('adminPermissions', JSON.stringify(permissions));
+            localStorage.setItem('authApiVersion', 'new');
+
+            navigate('/admin/dashboard');
+            return;
+          }
+        }
+      } catch (newApiErr) {
+        console.warn('New API auth failed or unavailable, falling back to previous API:', newApiErr.response?.data || newApiErr.message);
+      }
+
+      // 2. Fallback to previous OTP-based authentication API
       const response = await axios.post(
         `${ADMIN_AUTH_API}/login`,
         buildLoginPayload(email, password),
@@ -53,11 +178,12 @@ const AdminLoginPage = () => {
 
       const data = response.data;
 
-      // If backend explicitly failed even on 200
       if (data?.success === false) {
         setError(data?.message || 'Login failed. Please check your credentials.');
         return;
       }
+
+      localStorage.setItem('authApiVersion', 'old');
 
       // Credentials accepted → go to OTP screen for 2-step verification
       navigate('/admin/verify-otp', {
@@ -73,6 +199,7 @@ const AdminLoginPage = () => {
       console.error('Admin Login Error:', err.response?.data || err.message);
 
       if (shouldContinueToOtpAfterLoginError(err)) {
+        localStorage.setItem('authApiVersion', 'old');
         navigate('/admin/verify-otp', {
           state: {
             email: email.trim(),

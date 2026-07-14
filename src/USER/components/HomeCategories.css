@@ -1,88 +1,49 @@
 .home-categories-section {
-  padding: 4rem 5%;
+  padding: 1.25rem 0.85rem;
 }
 
-.section-header {
+.home-category-card-grid {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2.5rem;
+  flex-wrap: nowrap;
+  gap: 20px;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  align-items: stretch;
+  padding-bottom: 0.5rem;
+  scrollbar-width: thin;
 }
 
-.section-header h2 {
-  font-size: 1.8rem;
-  font-weight: 800;
-  color: #1a1a1a;
-  border-left: 6px solid var(--primary-color);
-  padding-left: 15px;
+.home-category-card {
+  flex: 0 0 300px;
+  width: 300px;
+  height: 260px;
 }
 
-.view-all-btn {
-  padding: 0.6rem 1.5rem;
-  background: transparent;
-  border: 2px solid #eee;
-  border-radius: 6px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.view-all-btn:hover {
-  background: #f5f5f5;
-  border-color: #ddd;
-}
-
-.cat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 2rem;
-}
-
-.cat-card {
-  background: white;
-  padding: 2rem 1rem;
-  border-radius: 15px;
-  text-align: center;
-  box-shadow: 0 4px 15px rgba(0,0,0,0.03);
-  transition: all 0.3s;
-  cursor: pointer;
-  border: 1px solid #f0f0f0;
-}
-
-.cat-card:hover {
-  transform: translateY(-8px);
-  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-  border-color: var(--primary-color);
-}
-
-.cat-img-wrapper {
-  width: 80px;
-  height: 80px;
-  margin: 0 auto 1.5rem;
-  padding: 10px;
-  background: #f9f9f9;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.cat-icon-img {
+.home-category-card .app-category-card {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  min-height: 260px;
 }
 
-.cat-card span {
-  display: block;
-  font-size: 1rem;
-  font-weight: 700;
-  color: #333;
+@media (max-width: 1024px) {
+  .home-category-card-grid {
+    gap: 20px;
+  }
 }
 
-@media (max-width: 600px) {
-  .cat-grid {
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
+@media (max-width: 767px) {
+  .home-categories-section {
+    padding: 1rem 0.75rem;
+  }
+
+  .home-category-card-grid {
+    gap: 16px;
+  }
+
+  .home-category-card {
+    flex-basis: min(300px, 82vw);
+    width: min(300px, 82vw);
+    height: 260px;
   }
 }

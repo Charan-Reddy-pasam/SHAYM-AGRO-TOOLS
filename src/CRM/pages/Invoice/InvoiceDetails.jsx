@@ -3,10 +3,10 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { FiDownload, FiEdit, FiPlus, FiSend, FiTrash2, FiFileText } from "react-icons/fi";
 import logo from "../../assets/logo.png";
 import "./Invoice.css";
+import { jsPDF } from "jspdf";
 import {
   INVOICE_ACTIONS_API_URL,
   INVOICES_API_URL,
-  downloadInvoiceBlob,
   invoiceRequest,
   normalizeInvoiceEnvelope,
 } from "./invoiceApi";
@@ -66,14 +66,102 @@ function InvoiceDetails() {
     </span>
   );
 
-  const downloadCurrentFormInvoice = async () => {
+  const downloadCurrentFormInvoice = () => {
     try {
       setApiError("");
-      const invoiceNumber = invoiceData?.invoice?.invoiceNumber || `INV-${id}`;
-      await downloadInvoiceBlob(`${INVOICE_ACTIONS_API_URL}/download-pdf/${id}`, `${invoiceNumber}.pdf`);
+      const { invoice, items } = normalizeInvoiceEnvelope(invoiceData);
+      const invoiceNumber = invoice.invoiceNumber || `INV-${id}`;
+      
+      const doc = new jsPDF();
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(22);
+      doc.setTextColor(37, 99, 235);
+      doc.text("SHYAM AGRO TOOLS", 20, 25);
+      
+      doc.setFont("Helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text("G.T. Road, Opposite Focal Point, Batala - 143505, Punjab, India", 20, 31);
+      doc.text("Email: contact@shyamagrotools.com | Phone: +91 98765 43210", 20, 36);
+      doc.text("GSTIN: 03AAAAA1111A1Z1", 20, 41);
+  
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.5);
+      doc.line(20, 46, 190, 46);
+  
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text("INVOICE TO:", 20, 54);
+      doc.setFont("Helvetica", "normal");
+      doc.text(`${invoice.clientName || ""}`, 20, 60);
+      doc.text(`${invoice.email || ""}`, 20, 65);
+      doc.text(`${invoice.companyAddress || ""}`, 20, 70);
+      doc.text(`Tax No: ${invoice.taxNumber || ""}`, 20, 75);
+  
+      doc.setFont("Helvetica", "bold");
+      doc.text("INVOICE DETAILS:", 120, 54);
+      doc.setFont("Helvetica", "normal");
+      doc.text(`Invoice No: ${invoiceNumber}`, 120, 60);
+      doc.text(`Date: ${invoice.invoiceDate ? invoice.invoiceDate.split("T")[0] : "-"}`, 120, 65);
+      doc.text(`Status: ${invoice.paymentStatus || "Unpaid"}`, 120, 70);
+  
+      doc.line(20, 80, 190, 80);
+  
+      // Table Header
+      doc.setFont("Helvetica", "bold");
+      doc.text("#", 20, 87);
+      doc.text("Product Details", 30, 87);
+      doc.text("Rate", 110, 87);
+      doc.text("Qty", 140, 87);
+      doc.text("Amount", 165, 87);
+  
+      doc.line(20, 91, 190, 91);
+  
+      doc.setFont("Helvetica", "normal");
+      let y = 97;
+      items.forEach((item, idx) => {
+        doc.text(`${idx + 1}`, 20, y);
+        doc.text(`${item.productName}`, 30, y);
+        if (item.productDetails) {
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text(`${item.productDetails}`, 30, y + 4);
+          doc.setFontSize(10);
+          doc.setTextColor(15, 23, 42);
+        }
+        doc.text(`${money(item.rate)}`, 110, y);
+        doc.text(`${item.quantity}`, 140, y);
+        doc.text(`${money(Number(item.rate) * Number(item.quantity))}`, 165, y);
+        
+        y += item.productDetails ? 12 : 8;
+      });
+  
+      doc.line(20, y - 2, 190, y - 2);
+  
+      // Totals
+      doc.text("Sub Total:", 120, y + 5);
+      doc.text(`${money(invoice.subTotal)}`, 165, y + 5);
+      doc.text("Estimated Tax (12.5%):", 120, y + 10);
+      doc.text(`${money(invoice.taxAmount)}`, 165, y + 10);
+      if (invoice.discountAmount > 0) {
+        doc.text("Discount:", 120, y + 15);
+        doc.text(`-${money(invoice.discountAmount)}`, 165, y + 15);
+        y += 5;
+      }
+      if (invoice.shippingCharge > 0) {
+        doc.text("Shipping Charge:", 120, y + 15);
+        doc.text(`${money(invoice.shippingCharge)}`, 165, y + 15);
+        y += 5;
+      }
+      doc.setFont("Helvetica", "bold");
+      doc.text("Total Amount:", 120, y + 15);
+      doc.text(`${money(invoice.totalAmount)}`, 165, y + 15);
+  
+      doc.save(`${invoiceNumber}.pdf`);
     } catch (error) {
-      console.error("GET Invoice PDF Error:", error);
-      setApiError("Unable to download invoice PDF.");
+      console.error("PDF Generation Error:", error);
+      setApiError("Unable to generate invoice PDF.");
     }
   };
 

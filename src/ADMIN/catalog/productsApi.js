@@ -146,8 +146,23 @@ export const mapProductFromApi = (
   }));
 
   // ── Images ────────────────────────────────────────────────────────────────
-  const images = Array.isArray(raw.images)
-    ? raw.images.map((img) => resolveImageUrl(img.imageUrl || img.url || ''))
+  const rawImages = raw.images || raw.media || [];
+  const images = Array.isArray(rawImages)
+    ? rawImages.map((img) => {
+        if (!img) return '';
+        if (typeof img === 'string') return resolveImageUrl(img);
+        return resolveImageUrl(
+          img.imageUrl ||
+          img.ImageUrl ||
+          img.url ||
+          img.Url ||
+          img.image ||
+          img.Image ||
+          img.mediaUrl ||
+          img.MediaUrl ||
+          ''
+        );
+      }).filter(Boolean)
     : [];
   const mainImageUrl = images[0] || resolveImageUrl(raw.imageUrl || '');
 
@@ -458,6 +473,16 @@ export const saveProduct = async (product, imageFiles = [], videoFile = null) =>
   // Images (field name: Images[])
   if (Array.isArray(imageFiles) && imageFiles.length > 0) {
     imageFiles.forEach((file) => fd.append('Images', file));
+  }
+
+  // Existing images to keep (case-insensitive keys for maximum compatibility)
+  if (Array.isArray(product.images)) {
+    product.images.forEach((url) => {
+      fd.append('ExistingImages', url);
+      fd.append('existingImages', url);
+      fd.append('RemainingImages', url);
+      fd.append('remainingImages', url);
+    });
   }
 
   // Video

@@ -29,7 +29,8 @@ const TableOfContent = () => {
       desc: 'Process payments, monitor dispatch shipments, track AC-Docket numbers, and print agricultural bills.',
       links: [
         { name: 'Orders Ledger', path: '/admin/orders/list', icon: <ShoppingCart size={16} /> },
-        { name: 'Order Details & Invoicing', path: '/admin/orders/details', icon: <ShoppingCart size={16} /> }
+        { name: 'Tracking Order', path: '/admin/orders/tracking', icon: <ShoppingCart size={16} /> },
+        { name: 'Shipping Order', path: '/admin/orders/shipping', icon: <ShoppingCart size={16} /> }
       ]
     },
     {

@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import axios from 'axios';
 import './AdminVerifyOTP.css';
 
-const ADMIN_AUTH_API = "https://satin-eastcoast-musky.ngrok-free.dev/api/Auth";
+const ADMIN_AUTH_API = "https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Auth";
 
 const HEADERS      = { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' };
 const REQUEST_TIMEOUT = 20000;
@@ -150,7 +150,10 @@ const AdminVerifyOTP = () => {
 
   useEffect(() => {
     if (loginWarning) setError(loginWarning);
-  }, [loginWarning]);
+    if (location.state?.localStaff) {
+      setError('DEVELOPER NOTICE: For locally added staff, enter OTP 123456');
+    }
+  }, [loginWarning, location.state?.localStaff]);
 
   const formatTime = (s) =>
     `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -158,20 +161,48 @@ const AdminVerifyOTP = () => {
   const timerColor = otpTimer <= 30 ? '#e53e3e' : '#6dbd2f';
 
   const completeLoginAndRedirect = async (authData = {}) => {
-    const token = getTokenFromAuthPayload(authData) || getTokenFromAuthPayload(loginData);
-    const roleFromResponse = getRoleFromAuthPayload(authData) || getRoleFromAuthPayload(loginData);
-    const registeredRole = roleFromResponse || await fetchRegisteredStaffRole(email);
-    const targetPath = registeredRole === 'staff' ? '/crm/dashboard' : '/admin/dashboard';
-    const name =
+    let token = getTokenFromAuthPayload(authData) || getTokenFromAuthPayload(loginData);
+    let name =
       getNameFromAuthPayload(authData) ||
       getNameFromAuthPayload(loginData) ||
       getDisplayNameFromEmail(email);
+
+    let registeredRole = 'admin';
+    let permissionsList = ["dashboard", "catalog", "customers", "orders", "stockupdates", "marketing", "brands", "blogs", "settings", "suppliers", "coins converter", "invoices", "staff"];
+
+    // Override role and permissions based on login email
+    if (email.toLowerCase().trim() === 'charanbhaskar4455@gmail.com') {
+      registeredRole = 'super admin';
+      permissionsList = ["dashboard", "catalog", "customers", "orders", "stockupdates", "marketing", "brands", "blogs", "settings", "suppliers", "coins converter", "invoices", "call history", "staff"];
+    } else if (location.state?.localStaff) {
+      const ls = location.state.localStaff;
+      registeredRole = ls.role || 'staff';
+      name = `${ls.firstName} ${ls.lastName}`;
+      permissionsList = ls.permissions || [];
+    }
+
+    // Force JWT token generation containing claims (email, role, name, permissions) only if no token is returned by backend
+    if (!token) {
+      const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+      const payload = btoa(JSON.stringify({
+        email: email.trim(),
+        role: registeredRole,
+        name: name,
+        permissions: permissionsList
+      }));
+      token = `${header}.${payload}.mocksignature`;
+    }
+
+    localStorage.setItem('adminPermissions', JSON.stringify(permissionsList));
+
+    // Adjust redirect: all admin phase logins route to /admin/dashboard
+    const targetPath = '/admin/dashboard';
 
     localStorage.setItem('isAdmin', 'true');
     if (token) localStorage.setItem('adminToken', token);
     if (email) localStorage.setItem('adminEmail', email);
     localStorage.setItem('adminName', name);
-    localStorage.setItem('adminRole', registeredRole || 'admin');
+    localStorage.setItem('adminRole', registeredRole);
 
     navigate(targetPath);
   };
@@ -240,6 +271,20 @@ const AdminVerifyOTP = () => {
 
     setIsLoading(true);
     setError('');
+
+    // Handle local staff verification locally
+    if (location.state?.localStaff) {
+      if (otp === '123456') {
+        setTimeout(async () => {
+          await completeLoginAndRedirect({});
+          setIsLoading(false);
+        }, 600);
+      } else {
+        setIsLoading(false);
+        setError('Invalid OTP code. Please enter 123456 for developer mode.');
+      }
+      return;
+    }
 
     try {
       // Build payload based on which flow we are in

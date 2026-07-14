@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, Plus, Save, Tags, Upload } from 'lucide-react';
-import {
-  slugify,
-} from './catalogStore';
+import { ArrowLeft, Plus, Tags } from 'lucide-react';
+import { slugify } from './catalogStore';
 import { fetchCategories, fetchSubcategory, saveSubcategory as saveSubcategoryApi } from './catalogApi';
+import { Toast } from '../components/Toast';
 import './adminModule.css';
 
 const emptySubcategory = {
@@ -29,10 +28,9 @@ const SubcategoryForm = () => {
     ...emptySubcategory,
     categoryId: preselectedCategoryId || '',
   });
-  const [isSaved, setIsSaved] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [toast, setToast] = useState(null);
   const isEditing = Boolean(subcategoryId);
 
   useEffect(() => {
@@ -41,7 +39,6 @@ const SubcategoryForm = () => {
     const loadFormData = async () => {
       try {
         setIsLoading(true);
-        setError('');
         const [loadedCategories, existingSubcategory] = await Promise.all([
           fetchCategories(),
           subcategoryId ? fetchSubcategory(subcategoryId) : Promise.resolve(null),
@@ -58,16 +55,14 @@ const SubcategoryForm = () => {
           imageFile: null,
         }));
       } catch (apiError) {
-        if (isMounted) setError(apiError.message || 'Unable to load subcategory form data.');
+        setToast({ message: apiError.message || 'Unable to load form data.', type: 'error' });
       } finally {
         if (isMounted) setIsLoading(false);
       }
     };
 
     loadFormData();
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, [preselectedCategoryId, subcategoryId]);
 
   const handleInputChange = (event) => {
@@ -80,48 +75,47 @@ const SubcategoryForm = () => {
     }));
   };
 
-  const handleImageChange = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setFormData((current) => ({ ...current, image: reader.result, imageFile: file }));
-    };
-    reader.readAsDataURL(file);
+  const validate = () => {
+    if (!formData.categoryId) {
+      setToast({ message: 'Parent Category is required!', type: 'error' });
+      return false;
+    }
+    if (!formData.name.trim()) {
+      setToast({ message: 'Subcategory Name is required!', type: 'error' });
+      return false;
+    }
+    if (!formData.slug.trim()) {
+      setToast({ message: 'URL Slug is required!', type: 'error' });
+      return false;
+    }
+    if (!formData.description.trim()) {
+      setToast({ message: 'Description is required!', type: 'error' });
+      return false;
+    }
+    return true;
   };
 
-  const saveSubcategory = async () => {
+  const handleSave = async (e) => {
+    if (e) e.preventDefault();
+    if (!validate()) return;
     setIsSaving(true);
-    setError('');
 
     try {
-      const savedSubcategory = await saveSubcategoryApi({
+      const saved = await saveSubcategoryApi({
         ...formData,
         slug: formData.slug || slugify(formData.name),
       });
 
-      setFormData((current) => ({ ...current, ...savedSubcategory, imageFile: null }));
-      setIsSaved(true);
-      setTimeout(() => setIsSaved(false), 2200);
-      return savedSubcategory;
+      if (saved) {
+        setToast({ message: 'Subcategory saved successfully!', type: 'success' });
+        setTimeout(() => {
+          navigate('/admin/catalog/subcategories');
+        }, 1500);
+      }
     } catch (apiError) {
-      setError(apiError.message || 'Unable to save subcategory.');
-      return null;
+      setToast({ message: apiError.message || 'Unable to save subcategory.', type: 'error' });
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    await saveSubcategory();
-  };
-
-  const handleSaveAndAddProduct = async () => {
-    const savedSubcategory = await saveSubcategory();
-    if (savedSubcategory) {
-      navigate(`/admin/catalog/products-form?categoryId=${savedSubcategory.categoryId}&subcategoryId=${savedSubcategory.id}`);
     }
   };
 
@@ -141,80 +135,49 @@ const SubcategoryForm = () => {
   }
 
   return (
-    <div className="catalog-page">
-      <section className="catalog-header">
+    <div className="catalog-page" style={{ padding: '0px', maxWidth: '100%', margin: '0px' }}>
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+      <section className="catalog-header" style={{ padding: '16px 20px', marginBottom: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
         <div className="catalog-title-wrap">
-          <span className="catalog-kicker">Step 2 of 3</span>
-          <h1>{isEditing ? 'Edit Subcategory' : 'Create Subcategory'}</h1>
-          <p>Attach each subcategory to a category so products can be grouped cleanly.</p>
+          <span className="catalog-kicker">Catalog Management</span>
+          <h1 style={{ fontSize: '20px', fontWeight: '800' }}>{isEditing ? 'Edit Subcategory' : 'Create Subcategory'}</h1>
+          <p style={{ fontSize: '13px', margin: '4px 0 0' }}>Attach subcategories under a parent category.</p>
         </div>
 
-        <div className="catalog-header__actions">
-          <Link to="/admin/catalog/subcategories" className="catalog-btn">
-            <ArrowLeft size={16} /> Subcategories List
+        <div className="catalog-header__actions" style={{ gap: '8px' }}>
+          <Link to="/admin/catalog/subcategories" className="catalog-btn" style={{ padding: '6px 12px', fontSize: '13px' }}>
+            <ArrowLeft size={14} /> Subcategories List
           </Link>
-          <button type="button" className="catalog-btn catalog-btn--primary" onClick={handleSaveAndAddProduct}>
-            <Plus size={16} /> Save & Add Product
+          <button type="button" className="catalog-btn catalog-btn--primary" onClick={handleSave} disabled={isSaving} style={{ padding: '6px 12px', fontSize: '13px' }}>
+            <Plus size={14} /> {isSaving ? 'Saving...' : 'Save & Add Product'}
           </button>
         </div>
       </section>
 
-      <section className="catalog-card">
-        <div className="catalog-card__header">
-          <div>
-            <h2>Subcategory Details</h2>
-            <p className="catalog-card__subtitle">Choose the parent category before adding product-specific groups.</p>
-          </div>
-          {isSaved && (
-            <span className="catalog-alert">
-              <CheckCircle size={16} /> Subcategory saved
-            </span>
-          )}
-        </div>
-
-        {error && <div className="catalog-alert catalog-alert--danger">{error}</div>}
+      <section className="catalog-card" style={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: 'none', padding: '20px' }}>
         {isLoading ? (
-          <div className="catalog-center-cell">Loading subcategory...</div>
+          <div className="catalog-center-cell" style={{ padding: '32px' }}>Loading subcategory...</div>
         ) : (
-        <form className="catalog-form" onSubmit={handleSubmit}>
-          <div className="catalog-form-grid">
+        <form className="catalog-form" onSubmit={handleSave} style={{ gap: '16px' }}>
+          
+          <div className="catalog-form-grid" style={{ gap: '16px' }}>
             <div className="catalog-field">
-              <label htmlFor="subcategory-name">Subcategory Name</label>
-              <input
-                id="subcategory-name"
-                name="name"
-                type="text"
-                value={formData.name}
-                onChange={handleInputChange}
-                placeholder="e.g. Power Tillers"
-                required
-              />
-            </div>
-
-            <div className="catalog-field">
-              <label htmlFor="subcategory-slug">URL Slug</label>
-              <input
-                id="subcategory-slug"
-                name="slug"
-                type="text"
-                value={formData.slug}
-                onChange={handleInputChange}
-                placeholder="power-tillers"
-                required
-              />
-            </div>
-          </div>
-
-          <div className="catalog-form-grid catalog-form-grid--three">
-            <div className="catalog-field">
-              <label htmlFor="subcategory-category">Parent Category</label>
+              <label htmlFor="subcategory-category" style={{ fontSize: '12px', fontWeight: '600' }}>Parent Category</label>
               <select
                 id="subcategory-category"
                 name="categoryId"
                 value={formData.categoryId}
                 onChange={handleInputChange}
+                style={{ padding: '6px 10px', fontSize: '13px' }}
                 required
               >
+                <option value="">Select Parent Category</option>
                 {categories.map((category) => (
                   <option key={category.id} value={category.id}>
                     {category.name}
@@ -224,7 +187,37 @@ const SubcategoryForm = () => {
             </div>
 
             <div className="catalog-field">
-              <label htmlFor="subcategory-order">Display Order</label>
+              <label htmlFor="subcategory-name" style={{ fontSize: '12px', fontWeight: '600' }}>Subcategory Name</label>
+              <input
+                id="subcategory-name"
+                name="name"
+                type="text"
+                value={formData.name}
+                onChange={handleInputChange}
+                placeholder="e.g. Power Tillers"
+                style={{ padding: '6px 10px', fontSize: '13px' }}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="catalog-form-grid catalog-form-grid--three" style={{ gap: '16px' }}>
+            <div className="catalog-field">
+              <label htmlFor="subcategory-slug" style={{ fontSize: '12px', fontWeight: '600' }}>URL Slug</label>
+              <input
+                id="subcategory-slug"
+                name="slug"
+                type="text"
+                value={formData.slug}
+                onChange={handleInputChange}
+                placeholder="power-tillers"
+                style={{ padding: '6px 10px', fontSize: '13px' }}
+                required
+              />
+            </div>
+
+            <div className="catalog-field">
+              <label htmlFor="subcategory-order" style={{ fontSize: '12px', fontWeight: '600' }}>Display Order</label>
               <input
                 id="subcategory-order"
                 name="displayOrder"
@@ -233,12 +226,13 @@ const SubcategoryForm = () => {
                 value={formData.displayOrder}
                 onChange={handleInputChange}
                 placeholder="1"
+                style={{ padding: '6px 10px', fontSize: '13px' }}
               />
             </div>
 
             <div className="catalog-field">
-              <label htmlFor="subcategory-status">Status</label>
-              <select id="subcategory-status" name="status" value={formData.status} onChange={handleInputChange}>
+              <label htmlFor="subcategory-status" style={{ fontSize: '12px', fontWeight: '600' }}>Status</label>
+              <select id="subcategory-status" name="status" value={formData.status} onChange={handleInputChange} style={{ padding: '6px 10px', fontSize: '13px' }}>
                 <option value="Active">Active</option>
                 <option value="Inactive">Inactive</option>
               </select>
@@ -246,38 +240,16 @@ const SubcategoryForm = () => {
           </div>
 
           <div className="catalog-field">
-            <label htmlFor="subcategory-description">Description</label>
+            <label htmlFor="subcategory-description" style={{ fontSize: '12px', fontWeight: '600' }}>Description</label>
             <textarea
               id="subcategory-description"
               name="description"
               value={formData.description}
               onChange={handleInputChange}
               placeholder="Describe this product group."
+              style={{ padding: '8px 10px', fontSize: '13px', minHeight: '80px' }}
               required
             />
-          </div>
-
-          <div className="catalog-field">
-            <label>Subcategory Image</label>
-            <label className="catalog-upload" htmlFor="subcategory-image">
-              <span className="catalog-upload__box">
-                {formData.image ? <img src={formData.image} alt="" /> : <Upload size={24} />}
-              </span>
-              <span>
-                <strong>Upload Image</strong>
-                <span>Useful for category landing sections and filters.</span>
-              </span>
-              <input id="subcategory-image" type="file" accept="image/*" onChange={handleImageChange} />
-            </label>
-          </div>
-
-          <div className="catalog-actions">
-            <button type="submit" className="catalog-btn catalog-btn--primary">
-              <Save size={16} /> {isSaving ? 'Saving...' : 'Save Subcategory'}
-            </button>
-            <button type="button" className="catalog-btn" onClick={() => navigate('/admin/catalog/subcategories')}>
-              Cancel
-            </button>
           </div>
         </form>
         )}

@@ -223,6 +223,14 @@
   background: #fef3c7 !important;
 }
 
+.stock-row--success td {
+  background: #f0fdf4;
+}
+
+.stock-row--success:hover td {
+  background: #dcfce7 !important;
+}
+
 /* ── Adjust Button ── */
 .stock-adjust-btn {
   color: #2636b6;
@@ -574,3 +582,47 @@
 .currency-input-wrap input {
   padding-left: 28px !important;
 }
+
+/* ── Toast Notifications ── */
+.stock-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.98);
+  border-left: 4px solid #10b981;
+  padding: 12px 24px;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  backdrop-filter: blur(8px);
+  animation: stockSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.stock-notification.error {
+  border-left-color: #ef4444;
+  color: #991b1b;
+  background: #fef2f2;
+}
+
+.stock-notification.success {
+  border-left-color: #10b981;
+  color: #14532d;
+  background: #f0fdf4;
+}
+
+@keyframes stockSlideIn {
+  from {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+

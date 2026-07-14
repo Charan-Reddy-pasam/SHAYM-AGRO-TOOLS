@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { ArrowLeft, Save, Upload, CheckCircle, RefreshCw, AlertCircle, X } from 'lucide-react';
+import { ArrowLeft, Save, Upload, RefreshCw } from 'lucide-react';
 import '../catalog/adminModule.css';
+import { Toast } from '../components/Toast';
 
 const API_BASE   = 'https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Blog';
 const IMG_BASE   = 'https://wildlife-unwieldy-devotee.ngrok-free.dev';
@@ -34,8 +35,8 @@ const BlogForm = () => {
 
   const [loading, setLoading]   = useState(isEditing);
   const [saving, setSaving]     = useState(false);
-  const [saved, setSaved]       = useState(false);
-  const [error, setError]       = useState('');
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState('success');
 
   /* ── Set today as default date for new blogs ── */
   useEffect(() => {
@@ -49,7 +50,7 @@ const BlogForm = () => {
   useEffect(() => {
     if (!blogId) return;
     setLoading(true);
-    setError('');
+    setToastMessage('');
 
     fetch(`${API_BASE}/${blogId}`, { headers: GET_HEADERS })
       .then(res => {
@@ -73,7 +74,10 @@ const BlogForm = () => {
           setImagePreview(src);
         }
       })
-      .catch(err => setError(err.message || 'Failed to load article.'))
+      .catch(err => {
+        setToastMessage(err.message || 'Failed to load article.');
+        setToastType('error');
+      })
       .finally(() => setLoading(false));
   }, [blogId]);
 
@@ -91,19 +95,14 @@ const BlogForm = () => {
     setImagePreview(URL.createObjectURL(file));
   };
 
-  const clearImage = () => {
-    setImageFile(null);
-    setImagePreview(existingImg);
-  };
-
   /* ── Submit ── */
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!formData.title.trim()) { setError('Article title is required.'); return; }
-    if (!formData.description.trim()) { setError('Full content description is required.'); return; }
+    if (e) e.preventDefault();
+    if (!formData.title.trim()) { setToastMessage('Article title is required.'); setToastType('warning'); return; }
+    if (!formData.description.trim()) { setToastMessage('Full content description is required.'); setToastType('warning'); return; }
 
     setSaving(true);
-    setError('');
+    setToastMessage('');
 
     try {
       const body = new FormData();
@@ -132,68 +131,70 @@ const BlogForm = () => {
         throw new Error(txt || `Request failed with status ${res.status}`);
       }
 
-      setSaved(true);
+      setToastMessage(`Article ${isEditing ? 'updated' : 'published'} successfully!`);
+      setToastType('success');
       setTimeout(() => {
-        setSaved(false);
         navigate('/admin/blogs/list');
       }, 1000);
 
     } catch (err) {
-      setError(err.message || 'Failed to save the article. Please try again.');
-    } finally {
+      setToastMessage(err.message || 'Failed to save the article. Please try again.');
+      setToastType('error');
       setSaving(false);
     }
   };
 
   return (
-    <div className="catalog-page">
-      {/* ── Page Header ── */}
-      <section className="catalog-header">
-        <div className="catalog-title-wrap">
-          <h1>{isEditing ? 'Edit Blog Article' : 'Write Blog Article'}</h1>
-          <p>Compose and style informative agricultural content for farmers and retailers.</p>
-        </div>
-        <div className="catalog-header__actions">
-          <Link to="/admin/blogs/list" className="catalog-btn">
-            <ArrowLeft size={16} /> Back to Blogs
+    <div className="catalog-page" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {toastMessage && (
+        <Toast message={toastMessage} type={toastType} onClose={() => setToastMessage('')} />
+      )}
+
+      {/* Top Header Row with Actions in Top-Right */}
+      <section className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+        <div className="flex items-center gap-3">
+          <Link className="p-2 hover:bg-slate-50 text-slate-600 rounded-lg transition-colors border border-slate-200" to="/admin/blogs/list">
+            <ArrowLeft size={16} />
           </Link>
+          <div>
+            <span className="catalog-kicker" style={{ fontSize: '10px', textTransform: 'uppercase', color: '#059669', fontWeight: 700 }}>Blog Manager</span>
+            <h1 style={{ fontSize: '18px', fontWeight: 800, color: '#1e293b', margin: 0 }}>
+              {isEditing ? 'Edit Blog Article' : 'Write Blog Article'}
+            </h1>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Link to="/admin/blogs/list" className="catalog-btn" style={{ fontSize: '11px', padding: '6px 12px' }}>
+            Cancel
+          </Link>
+          <button className="catalog-btn catalog-btn--primary" onClick={handleSubmit} disabled={saving} style={{ fontSize: '11px', padding: '6px 12px' }}>
+            {saving ? (
+              <RefreshCw size={14} className="spin" style={{ marginRight: '4px' }} />
+            ) : (
+              <Save size={14} style={{ marginRight: '4px' }} />
+            )}
+            {isEditing ? 'Update Article' : 'Publish Article'}
+          </button>
         </div>
       </section>
 
-      {/* ── Form Card ── */}
-      <section className="catalog-card">
-        <div className="catalog-card__header">
-          <div>
-            <h2>Article Details</h2>
-            <p className="catalog-card__subtitle">
-              {isEditing ? 'Update the article content and republish.' : 'Include a rich description and high-quality cover photo to improve readership.'}
-            </p>
-          </div>
-          {saved && (
-            <span className="catalog-alert" style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#15803d', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '6px 12px', fontSize: 13 }}>
-              <CheckCircle size={16} /> Article {isEditing ? 'updated' : 'published'} successfully!
-            </span>
-          )}
-        </div>
-
-        {/* Error */}
-        {error && (
-          <div className="catalog-alert catalog-alert--danger" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-            <AlertCircle size={16} /> {error}
-          </div>
-        )}
-
-        {/* Loading skeleton */}
+      {/* Form Card */}
+      <section className="catalog-card" style={{ padding: '20px', margin: 0 }}>
         {loading ? (
-          <div className="catalog-center-cell" style={{ padding: '64px 0', color: '#94a3b8' }}>
-            <RefreshCw size={22} className="spin" style={{ display: 'block', margin: '0 auto 10px' }} />
+          <div className="catalog-center-cell" style={{ padding: '48px 0', color: '#94a3b8', textAlign: 'center' }}>
+            <RefreshCw size={20} className="spin" style={{ display: 'block', margin: '0 auto 8px' }} />
             Loading article data...
           </div>
         ) : (
-          <form className="catalog-form" onSubmit={handleSubmit}>
+          <form className="catalog-form" onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            
+            <h3 style={{ fontSize: '12px', fontWeight: 800, textTransform: 'uppercase', color: '#059669', letterSpacing: '0.05em', borderBottom: '2px solid #f1f5f9', paddingBottom: '6px', margin: '0' }}>
+              Article Details
+            </h3>
 
             {/* Row 1: Title + Category */}
-            <div className="catalog-form-grid">
+            <div className="catalog-form-grid" style={{ gap: '12px' }}>
               <div className="catalog-field">
                 <label htmlFor="blog-title">Article Title <span style={{ color: '#e30613' }}>*</span></label>
                 <input
@@ -204,19 +205,20 @@ const BlogForm = () => {
                   onChange={handleChange}
                   placeholder="e.g. Modern Drip Irrigation Practices"
                   required
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
                 />
               </div>
 
               <div className="catalog-field">
                 <label htmlFor="blog-category">Category</label>
-                <select id="blog-category" name="category" value={formData.category} onChange={handleChange}>
+                <select id="blog-category" name="category" value={formData.category} onChange={handleChange} style={{ padding: '6px 10px', fontSize: '12px' }}>
                   {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
             </div>
 
             {/* Row 2: Author + Date + Image Upload */}
-            <div className="catalog-form-grid catalog-form-grid--three">
+            <div className="catalog-form-grid catalog-form-grid--three" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
               <div className="catalog-field">
                 <label htmlFor="blog-author">Author Name</label>
                 <input
@@ -226,6 +228,7 @@ const BlogForm = () => {
                   value={formData.authorName}
                   onChange={handleChange}
                   placeholder="e.g. Admin, Agri Expert"
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
                 />
               </div>
 
@@ -238,44 +241,33 @@ const BlogForm = () => {
                   value={formData.publishDate}
                   onChange={handleChange}
                   required
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
                 />
               </div>
 
               {/* Image Upload */}
               <div className="catalog-field">
                 <label>Featured Cover Image</label>
-                <label className="catalog-upload" htmlFor="blog-image" style={{ cursor: 'pointer' }}>
-                  <span className="catalog-upload__box" style={{ position: 'relative' }}>
-                    {imagePreview ? (
-                      <>
-                        <img
-                          src={imagePreview}
-                          alt="Cover preview"
-                          style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6 }}
-                          onError={(e) => { e.target.style.display = 'none'; }}
-                        />
-                        {imageFile && (
-                          <button
-                            type="button"
-                            onClick={(ev) => { ev.preventDefault(); clearImage(); }}
-                            style={{ position: 'absolute', top: 4, right: 4, background: '#e30613', color: '#fff', border: 'none', borderRadius: '50%', width: 20, height: 20, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
-                          >
-                            <X size={12} />
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <Upload size={24} />
-                    )}
-                  </span>
-                  <span>
-                    <strong>{imagePreview ? (imageFile ? 'Change Photo' : 'Current Photo (click to change)') : 'Upload Cover Photo'}</strong>
-                    <span>Horizontal aspect ratio works best.</span>
+                <label className="catalog-upload" htmlFor="blog-image" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', border: '1px dashed #cbd5e1', borderRadius: '8px', padding: '6px 10px', backgroundColor: '#f8fafc', height: '34px', overflow: 'hidden' }}>
+                  <Upload size={14} style={{ color: '#059669', flexShrink: 0 }} />
+                  <span style={{ fontSize: '11px', color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <strong>{imagePreview ? 'Change Photo' : 'Upload Cover Photo'}</strong>
                   </span>
                   <input id="blog-image" type="file" accept="image/*" onChange={handleImageChange} style={{ display: 'none' }} />
                 </label>
               </div>
             </div>
+
+            {/* Image Preview Thumbnail if exists */}
+            {imagePreview && (
+              <div style={{ position: 'relative', width: '120px', height: '70px', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden' }}>
+                <img
+                  src={imagePreview}
+                  alt="Cover preview"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              </div>
+            )}
 
             {/* Summary */}
             <div className="catalog-field">
@@ -287,6 +279,7 @@ const BlogForm = () => {
                 value={formData.summary}
                 onChange={handleChange}
                 placeholder="A brief 1–2 sentence hook summarising the article..."
+                style={{ padding: '6px 10px', fontSize: '12px' }}
               />
             </div>
 
@@ -298,34 +291,13 @@ const BlogForm = () => {
                 name="description"
                 value={formData.description}
                 onChange={handleChange}
-                placeholder="Write the full content of the blog post here. Share detailed agrarian tips, crop analysis, or guide instructions."
-                rows="12"
+                placeholder="Write the full content of the blog post here..."
+                rows="6"
                 required
+                style={{ padding: '6px 10px', fontSize: '12px', resize: 'none' }}
               />
             </div>
 
-            {/* Actions */}
-            <div className="catalog-actions">
-              <button
-                type="submit"
-                className="catalog-btn catalog-btn--primary"
-                disabled={saving}
-                style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-              >
-                {saving
-                  ? <><RefreshCw size={15} className="spin" /> Saving...</>
-                  : <><Save size={16} /> {isEditing ? 'Update Article' : 'Publish Article'}</>
-                }
-              </button>
-              <button
-                type="button"
-                className="catalog-btn"
-                onClick={() => navigate('/admin/blogs/list')}
-                disabled={saving}
-              >
-                Cancel
-              </button>
-            </div>
           </form>
         )}
       </section>

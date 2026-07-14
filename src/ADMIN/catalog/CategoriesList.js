@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Edit, Layers, Plus, Search, Trash2, X } from 'lucide-react';
+import { Check, Plus, Search, X } from 'lucide-react';
 import { deleteCategory as deleteCategoryApi, fetchCategories, fetchProducts, saveCategory } from './catalogApi';
+import { OutlookDeleteButton, AnimatedEditButton, Pagination } from '../components/ActionButtons';
 import './adminModule.css';
 
 const CategoriesList = () => {
@@ -10,6 +11,10 @@ const CategoriesList = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   useEffect(() => {
     let isMounted = true;
@@ -41,9 +46,7 @@ const CategoriesList = () => {
     };
 
     loadCategories();
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, []);
 
   const categoryStats = useMemo(() => {
@@ -62,14 +65,22 @@ const CategoriesList = () => {
     }, {});
   }, [categories, products]);
 
-  const filteredCategories = categories.filter((category) => {
-    const query = searchTerm.toLowerCase();
-    return (
-      category.name.toLowerCase().includes(query) ||
-      category.description.toLowerCase().includes(query) ||
-      category.slug.toLowerCase().includes(query)
-    );
-  });
+  const filteredCategories = useMemo(() => {
+    const query = searchTerm.toLowerCase().trim();
+    return categories.filter((category) => {
+      return (
+        category.name.toLowerCase().includes(query) ||
+        (category.description || '').toLowerCase().includes(query) ||
+        (category.slug || '').toLowerCase().includes(query) ||
+        String(category.id).toLowerCase().includes(query)
+      );
+    });
+  }, [categories, searchTerm]);
+
+  // Reset page when filter/search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   const toggleStatus = async (id) => {
     const category = categories.find((item) => item.id === id);
@@ -98,7 +109,6 @@ const CategoriesList = () => {
       return;
     }
 
-    if (!window.confirm('Delete this category?')) return;
     try {
       await deleteCategoryApi(id);
       setCategories((current) => current.filter((category) => category.id !== id));
@@ -107,113 +117,111 @@ const CategoriesList = () => {
     }
   };
 
+  // Get current page items
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentCategories = filteredCategories.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredCategories.length / itemsPerPage);
+
   return (
-    <div className="catalog-page">
-      <section className="catalog-header">
+    <div className="catalog-page" style={{ padding: '0px', maxWidth: '100%', margin: '0px' }}>
+      <section className="catalog-header" style={{ padding: '16px 20px', marginBottom: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
         <div className="catalog-title-wrap">
-          <span className="catalog-kicker">Step 1 of 3</span>
-          <h1>Categories</h1>
-          <p>Create category groups first. Subcategories and products are linked from here.</p>
+          <span className="catalog-kicker">Catalog Management</span>
+          <h1 style={{ fontSize: '20px', fontWeight: '800' }}>Categories</h1>
+          <p style={{ fontSize: '13px', margin: '4px 0 0' }}>Create and manage primary catalog categories.</p>
         </div>
 
         <div className="catalog-header__actions">
-          <Link to="/admin/catalog/subcategories" className="catalog-btn">
+          <Link to="/admin/catalog/subcategories" className="catalog-btn" style={{ padding: '6px 12px', fontSize: '13px' }}>
             View Subcategories
           </Link>
-          <Link to="/admin/catalog/category" className="catalog-btn catalog-btn--primary">
-            <Plus size={16} /> Add Category
+          <Link to="/admin/catalog/category" className="catalog-btn catalog-btn--primary" style={{ padding: '6px 12px', fontSize: '13px' }}>
+            <Plus size={14} /> Add Category
           </Link>
         </div>
       </section>
 
-      <section className="catalog-card">
+      <section className="catalog-card" style={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: 'none', overflow: 'hidden' }}>
         {error && <div className="catalog-alert catalog-alert--danger">{error}</div>}
-        <div className="catalog-filterbar">
-          <div className="catalog-search">
-            <Search size={18} />
+        <div className="catalog-filterbar" style={{ padding: '12px 16px', background: '#fff' }}>
+          <div className="catalog-search" style={{ maxWidth: '320px' }}>
+            <Search size={16} />
             <input
               type="text"
-              placeholder="Search category name, slug, or description"
+              placeholder="Search category..."
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
+              style={{ padding: '6px 10px 6px 32px', fontSize: '13px' }}
             />
           </div>
-          <span className="catalog-count">{filteredCategories.length} categories</span>
+          <span className="catalog-count" style={{ fontSize: '13px' }}>{filteredCategories.length} categories</span>
         </div>
 
         <div className="catalog-table-wrap">
-          <table className="catalog-table">
+          <table className="catalog-table" style={{ fontSize: '13px' }}>
             <thead>
-              <tr>
-                <th>Category</th>
-                <th>Slug</th>
-                <th>Description</th>
-                <th className="catalog-center-cell">Subcategories</th>
-                <th className="catalog-center-cell">Products</th>
-                <th>Status</th>
-                <th className="catalog-center-cell">Actions</th>
+              <tr style={{ background: '#f8fafc' }}>
+                <th style={{ padding: '10px 16px' }}>ID</th>
+                <th style={{ padding: '10px 16px' }}>Category Name</th>
+                <th style={{ padding: '10px 16px' }}>Slug</th>
+                <th style={{ padding: '10px 16px' }}>Description</th>
+                <th style={{ padding: '10px 16px' }}>Status</th>
+                <th className="catalog-center-cell" style={{ padding: '10px 16px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan="7" className="catalog-center-cell">
+                  <td colSpan="6" className="catalog-center-cell" style={{ padding: '32px' }}>
                     Loading categories...
                   </td>
                 </tr>
               )}
-              {!isLoading && filteredCategories.map((category) => (
-                <tr key={category.id}>
-                  <td>
-                    <div className="catalog-inline-actions">
-                      <span className="catalog-badge">
-                        <Layers size={14} /> {category.code || category.id}
-                      </span>
-                    </div>
-                    <div className="catalog-table__title">{category.name}</div>
+              {!isLoading && currentCategories.map((category) => (
+                <tr key={category.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '10px 16px', fontWeight: '600', color: '#64748b' }}>
+                    {category.id}
                   </td>
-                  <td className="catalog-path">{category.slug}</td>
-                  <td>
-                    <div className="catalog-table__muted">{category.description}</div>
+                  <td style={{ padding: '10px 16px', fontWeight: '600', color: '#1e293b' }}>
+                    {category.name}
                   </td>
-                  <td className="catalog-center-cell">{categoryStats[category.id]?.subcategories || 0}</td>
-                  <td className="catalog-center-cell">{categoryStats[category.id]?.products || 0}</td>
-                  <td>
+                  <td className="catalog-path" style={{ padding: '10px 16px', color: '#2563eb' }}>
+                    {category.slug}
+                  </td>
+                  <td style={{ padding: '10px 16px', color: '#64748b', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {category.description}
+                  </td>
+                  <td style={{ padding: '10px 16px' }}>
                     <button
                       type="button"
                       className={`catalog-badge ${
                         category.status === 'Active' ? 'catalog-badge--active' : 'catalog-badge--inactive'
                       }`}
                       onClick={() => toggleStatus(category.id)}
+                      style={{ padding: '2px 8px', fontSize: '11px', borderRadius: '4px', cursor: 'pointer' }}
                     >
-                      {category.status === 'Active' ? <Check size={13} /> : <X size={13} />}
+                      {category.status === 'Active' ? <Check size={11} /> : <X size={11} />}
                       {category.status}
                     </button>
                   </td>
-                  <td>
-                    <div className="catalog-inline-actions">
-                      <Link
+                  <td style={{ padding: '10px 16px' }}>
+                    <div className="catalog-inline-actions" style={{ justifyContent: 'center', gap: '8px' }}>
+                      <AnimatedEditButton
                         to={`/admin/catalog/category?id=${category.id}`}
-                        className="catalog-btn catalog-btn--icon"
                         title="Edit category"
-                      >
-                        <Edit size={15} />
-                      </Link>
-                      <button
-                        type="button"
-                        className="catalog-btn catalog-btn--icon catalog-btn--danger"
+                      />
+                      <OutlookDeleteButton
                         onClick={() => deleteCategory(category.id)}
                         title="Delete category"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      />
                     </div>
                   </td>
                 </tr>
               ))}
               {!isLoading && !filteredCategories.length && (
                 <tr>
-                  <td colSpan="7" className="catalog-center-cell">
+                  <td colSpan="6" className="catalog-center-cell" style={{ padding: '32px', color: '#64748b' }}>
                     No categories match your search.
                   </td>
                 </tr>
@@ -221,6 +229,14 @@ const CategoriesList = () => {
             </tbody>
           </table>
         </div>
+        
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={filteredCategories.length}
+          itemsPerPage={itemsPerPage}
+        />
       </section>
     </div>
   );

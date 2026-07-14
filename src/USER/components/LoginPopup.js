@@ -1,242 +1,302 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import React, { useRef, useState } from 'react';
+import apiClient from '../../api/axios';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import headerLogo from '../../asset/header logo.png';
 import './LoginPopup.css';
 
-const API_BASE = "https://excretory-powdering-mocker.ngrok-free.dev/api/Auth";
+const DIRECT_API_BASE_URL = "https://wildlife-unwieldy-devotee.ngrok-free.dev";
+const API_HEADERS = {
+  'Content-Type': 'application/json',
+  'ngrok-skip-browser-warning': 'true',
+};
 
-const LoginPopup = ({ isOpen, onClose }) => {
-  // ── All hooks MUST be declared before any conditional return ──
-  const [step, setStep] = useState('phone'); // 'phone', 'details', 'otp'
+const getAuthApiBaseUrl = () => {
+  const configuredBaseUrl = process.env.REACT_APP_AUTH_API_BASE_URL;
+  if (configuredBaseUrl) return configuredBaseUrl.replace(/\/$/, '');
+
+  const hostname = window.location.hostname;
+  return hostname === 'localhost' || hostname === '127.0.0.1'
+    ? ''
+    : DIRECT_API_BASE_URL;
+};
+
+const normalizeMobileNumber = (value) => {
+  const digits = String(value || '').trim().replace(/\D/g, '');
+  return digits.length > 10 && digits.startsWith('91') ? digits.slice(2) : digits;
+};
+
+const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+const getApiErrorMessage = (err, fallback) => {
+  const errors = err.response?.data?.errors;
+  const firstValidationError = errors && Object.values(errors).flat()[0];
+
+  return (
+    err.response?.data?.message ||
+    err.response?.data?.title ||
+    err.response?.data?.error ||
+    firstValidationError ||
+    fallback
+  );
+};
+
+const LoginPopup = ({ isOpen, onClose, redirectTo }) => {
+  const navigate = useNavigate();
+  const { login } = useAuth();
+  const [step, setStep] = useState('phone');
   const [phone, setPhone] = useState('');
   const [details, setDetails] = useState({ name: '', email: '' });
   const [otp, setOtp] = useState('');
+  const [loginApiData, setLoginApiData] = useState({
+    success: false,
+    isNewUser: false,
+    otp: '',
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [resendTimer, setResendTimer] = useState(60);
-  const [canResend, setCanResend] = useState(false);
-  // Guards to prevent duplicate submissions
-  const [phoneSubmitted, setPhoneSubmitted] = useState(false);
-  const [detailsSubmitted, setDetailsSubmitted] = useState(false);
+  const requestLock = useRef(false);
 
-  useEffect(() => {
-    if (step !== 'otp') return;
-    if (resendTimer === 0) {
-      setCanResend(true);
-      return;
-    }
-    const id = setInterval(() => {
-      setResendTimer((t) => t - 1);
-    }, 1000);
-    return () => clearInterval(id);
-  }, [resendTimer, step]);
-
-  // ── Early return AFTER all hooks ──
   if (!isOpen) return null;
 
-  // ── Handlers ──
+  const handlePhoneChange = (e) => {
+    const value = e.target.value
+      .replace(/\D/g, '')
+      .slice(0, 10);
+
+    setPhone(value);
+  };
+
+  const completeLogin = async (authData = {}) => {
+    const normalizedPhone = normalizeMobileNumber(phone);
+    const apiUser = authData.user || authData.data?.user || authData.data || {};
+    const user = {
+      ...(apiUser || {}),
+      phone: apiUser?.phone || apiUser?.mobileNumber || apiUser?.MobileNumber || normalizedPhone,
+      role: apiUser?.role || authData.role || 'Grower',
+      isActive: apiUser?.isActive ?? true,
+      name: apiUser?.name || apiUser?.fullName || apiUser?.FullName || authData.name || details.name || 'User',
+      email: apiUser?.email || apiUser?.Email || details.email || '',
+      token: authData.token || authData.accessToken || authData.jwtToken || authData.authToken
+        || apiUser?.token || apiUser?.accessToken || apiUser?.jwtToken || apiUser?.authToken || '',
+      refreshToken: authData.refreshToken || apiUser?.refreshToken || '',
+      loggedIn: true,
+    };
+
+    login(authData, user);
+    onClose();
+    navigate(redirectTo || '/account');
+  };
+
   const handlePhoneSubmit = async (e) => {
     e.preventDefault();
-    if (phoneSubmitted) return; // Prevent duplicate clicks
-    if (phone.length !== 10) {
+    if (isLoading || requestLock.current) return;
+
+    const normalizedPhone = normalizeMobileNumber(phone);
+    if (normalizedPhone.length !== 10) {
       setError("Please enter a valid 10-digit number");
       return;
     }
 
-    setPhoneSubmitted(true);
+    requestLock.current = true;
     setIsLoading(true);
     setError('');
+
     try {
-      const response = await axios.post(`${API_BASE}/login`,
-        { MobileNumber: phone },
-        { headers: { 'ngrok-skip-browser-warning': 'true' } }
+      const response = await apiClient.post(
+        `${getAuthApiBaseUrl()}/test-auth/login`,
+        { mobileNumber: normalizedPhone },
+        { headers: API_HEADERS, skipAuth: true }
       );
 
-      if (response.data.needsProfile || response.data.isNewUser) {
-        setStep('details');
+      const nextLoginApiData = {
+        success: response.data?.success === true,
+        isNewUser: response.data?.isNewUser === true,
+        otp: response.data?.otp || '',
+      };
+      setLoginApiData(nextLoginApiData);
+
+      if (nextLoginApiData.success) {
+        setStep(nextLoginApiData.isNewUser ? 'details' : 'otp');
       } else {
-        setStep('otp');
-        setResendTimer(60);
-        setCanResend(false);
+        setError(response.data?.message || "Unable to continue. Please try again.");
       }
     } catch (err) {
       console.error("Login Error:", err.response?.data || err.message);
-      setError(err.response?.data?.title || err.response?.data?.message || "Failed to send OTP. Please try again.");
+      setError(getApiErrorMessage(err, "Unable to connect to server."));
     } finally {
+      requestLock.current = false;
       setIsLoading(false);
-      setPhoneSubmitted(false); // Reset guard so user can retry on error
     }
   };
 
   const handleDetailsSubmit = async (e) => {
     e.preventDefault();
-    if (detailsSubmitted) return; // Prevent duplicate clicks
+    if (isLoading || requestLock.current) return;
+
     if (!details.name.trim()) {
       setError("Name is required");
       return;
     }
 
-    setDetailsSubmitted(true);
-    setIsLoading(true);
-    setError('');
-    try {
-      console.log("Submitting details for:", phone);
-      // Send only MobileNumber and Name — backend sends OTP to mobile
-      await axios.post(`${API_BASE}/complete-profile`, {
-        MobileNumber: phone,
-        Name: details.name,
-        FullName: details.name
-      }, { headers: { 'ngrok-skip-browser-warning': 'true' } });
-
-      console.log("Profile update request sent");
-      setStep('otp');
-      setResendTimer(60);
-      setCanResend(false);
-      setError('');
-    } catch (err) {
-      console.error("Profile Error Details:", err.response?.data || err.message);
-      setError(err.response?.data?.title || err.response?.data?.message || "Failed to update profile.");
-      setDetailsSubmitted(false); // Reset guard so user can retry on error
-    } finally {
-      setIsLoading(false);
+    if (details.email.trim() && !isValidEmail(details.email.trim())) {
+      setError("Please enter a valid email address");
+      return;
     }
-  };
 
-  const handleResendOtp = async () => {
+    requestLock.current = true;
     setIsLoading(true);
     setError('');
+
     try {
-      if (details.name) {
-        // New user: resend via complete-profile
-        await axios.post(`${API_BASE}/complete-profile`, {
-          MobileNumber: phone,
-          Name: details.name,
-          FullName: details.name
-        }, { headers: { 'ngrok-skip-browser-warning': 'true' } });
+      if (!loginApiData.isNewUser) {
+        setStep('otp');
       } else {
-        // Existing user: resend via login
-        await axios.post(`${API_BASE}/login`,
-          { MobileNumber: phone },
-          { headers: { 'ngrok-skip-browser-warning': 'true' } }
+        const response = await apiClient.post(
+          `${getAuthApiBaseUrl()}/test-auth/save-name`,
+          {
+            mobileNumber: normalizeMobileNumber(phone),
+            fullName: details.name.trim(),
+            email: details.email.trim(),
+          },
+          { headers: API_HEADERS, skipAuth: true }
         );
+
+        if (response.data?.success === true) {
+          setStep('otp');
+        } else {
+          setError(response.data?.message || "Failed to register user.");
+        }
       }
-      setResendTimer(60);
-      setCanResend(false);
-      setError('');
     } catch (err) {
-      console.error("Resend OTP Error:", err.response?.data || err.message);
-      setError(err.response?.data?.message || "Failed to resend OTP. Please try again.");
+      console.error("Save Name Error:", err.response?.data || err.message);
+      setError(getApiErrorMessage(err, "Failed to register user. Please try again."));
     } finally {
+      requestLock.current = false;
       setIsLoading(false);
     }
   };
 
   const handleVerify = async (e) => {
     e.preventDefault();
-    if (otp.length < 4) {
+    if (isLoading || requestLock.current) return;
+
+    if (otp.trim().length !== 4) {
       setError("Please enter a valid 4-digit OTP");
       return;
     }
 
+    requestLock.current = true;
     setIsLoading(true);
     setError('');
+
     try {
-      console.log("Verifying OTP for:", phone);
-      const response = await axios.post(`${API_BASE}/verify-otp`, {
-        MobileNumber: phone,
-        Otp: otp
-      }, { headers: { 'ngrok-skip-browser-warning': 'true' } });
+      const response = await apiClient.post(
+        `${getAuthApiBaseUrl()}/test-auth/verify-otp`,
+        {
+          mobileNumber: normalizeMobileNumber(phone),
+          otp: otp.trim(),
+        },
+        { headers: API_HEADERS, skipAuth: true }
+      );
 
-      console.log("Verify Response Body:", response.data);
-
-      if (response.data.success === true || (response.status === 200 && response.data.token)) {
-        // Save email to profile post-verification if provided
-        if (details.email) {
-          try {
-            await axios.post(`${API_BASE}/complete-profile`, {
-              MobileNumber: phone,
-              Name: details.name,
-              FullName: details.name,
-              Email: details.email
-            }, { headers: { 'ngrok-skip-browser-warning': 'true' } });
-          } catch (profileErr) {
-            console.error("Failed to save email post-verification:", profileErr.response?.data || profileErr.message);
-          }
-        }
-
-        const userData = response.data.user || response.data;
-        const userObj = {
-          phone: phone,
-          name: userData.name || userData.fullName || details.name || 'User',
-          email: userData.email || details.email,
-          token: response.data.token || userData.token,
-          wallet: userData.wallet || 0,
-          id: userData.id || userData.userId,
-          loggedIn: true
-        };
-
-        localStorage.setItem('user', JSON.stringify(userObj));
-        onClose();
-        window.location.reload();
+      if (response.data?.success === false) {
+        setError(response.data?.message || "OTP verification failed. Please check the code.");
       } else {
-        setError(response.data.message || "Invalid OTP. Please try again.");
+        await completeLogin(response.data || {});
       }
     } catch (err) {
-      console.error("Verify Error:", err.response?.data || err.message);
-      setError(err.response?.data?.message || "OTP Verification failed. Please check the code.");
+      console.error("Verify OTP Error:", err.response?.data || err.message);
+      setError(getApiErrorMessage(err, "OTP verification failed. Please check the code."));
     } finally {
+      requestLock.current = false;
       setIsLoading(false);
     }
   };
 
   const resetForm = () => {
+    requestLock.current = false;
     setStep('phone');
     setPhone('');
     setDetails({ name: '', email: '' });
     setOtp('');
+    setLoginApiData({ success: false, isNewUser: false, otp: '' });
     setError('');
-    setPhoneSubmitted(false);
-    setDetailsSubmitted(false);
     onClose();
   };
 
+  const backToPhone = () => {
+    requestLock.current = false;
+    setStep('phone');
+    setOtp('');
+    setLoginApiData({ success: false, isNewUser: false, otp: '' });
+    setError('');
+  };
+
   return (
-    <div className="login-overlay" onClick={(e) => e.target.className === 'login-overlay' && resetForm()}>
+    <div
+      className="login-overlay"
+      onClick={(e) => {
+        if (e.target.className === 'login-overlay') resetForm();
+      }}
+    >
       <div className="login-modal-container">
-        {/* Left Side Image Section */}
         <div className="login-left-image">
           <img src="/popup-bg.png" alt="Agriculture" />
         </div>
 
-        {/* Right Side Content Section */}
         <div className="login-right-content">
-          <button className="close-button-circular" onClick={resetForm}>
+          <button
+            type="button"
+            className="close-button-circular"
+            onClick={resetForm}
+          >
             <i className="fas fa-times"></i>
           </button>
 
           <div className="login-logo-mini">
-            <img src="/logo.svg" alt="Shyam Agro Tools logo" />
+            <img src={headerLogo} alt="Shyam Agro Logo" />
           </div>
 
           <h2>SIGN UP TO GET OFFERS.</h2>
           <p>SIGN UP to get the best offers and discount today.</p>
 
-          {error && <div className="login-error-msg" style={{ color: '#ff4d4d', fontSize: '12px', fontWeight: 'bold', marginBottom: '10px', textTransform: 'uppercase' }}>{error}</div>}
+          {error && (
+            <div
+              className="login-error-msg"
+              style={{
+                color: '#ff4d4d',
+                fontSize: '12px',
+                fontWeight: 'bold',
+                marginBottom: '10px',
+                textTransform: 'uppercase'
+              }}
+            >
+              {error}
+            </div>
+          )}
 
           <div className="login-form-wrapper">
             {step === 'phone' && (
               <form onSubmit={handlePhoneSubmit}>
                 <input
                   type="tel"
+                  name="mobileNumber"
                   className="premium-input-field"
                   placeholder="Enter MOBILE NUMBER Here"
                   maxLength="10"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
+                  onChange={handlePhoneChange}
                   required
                   autoFocus
                 />
-                <button type="submit" className="premium-action-btn" disabled={isLoading || phoneSubmitted}>
-                  {isLoading ? 'SENDING...' : 'SUBSCRIBE'}
+
+                <button
+                  type="submit"
+                  className="premium-action-btn"
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'CHECKING...' : 'SUBSCRIBE'}
                 </button>
               </form>
             )}
@@ -245,24 +305,47 @@ const LoginPopup = ({ isOpen, onClose }) => {
               <form onSubmit={handleDetailsSubmit}>
                 <input
                   type="text"
+                  name="name"
                   className="premium-input-field"
                   placeholder="ENTER FULL NAME"
                   required
                   value={details.name}
-                  onChange={(e) => setDetails({...details, name: e.target.value})}
+                  onChange={(e) =>
+                    setDetails({ ...details, name: e.target.value })
+                  }
                   autoFocus
                 />
+
                 <input
                   type="email"
+                  name="email"
                   className="premium-input-field"
                   placeholder="ENTER EMAIL ID"
                   value={details.email}
-                  onChange={(e) => setDetails({...details, email: e.target.value})}
+                  onChange={(e) =>
+                    setDetails({ ...details, email: e.target.value })
+                  }
                 />
-                <button type="submit" className="premium-action-btn" disabled={isLoading || detailsSubmitted}>
-                  {isLoading ? 'UPDATING...' : 'CONTINUE'}
+
+                <button
+                  type="submit"
+                  className="premium-action-btn"
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'REGISTERING...' : 'CONTINUE'}
                 </button>
-                <div style={{ cursor: 'pointer', fontSize: '10px', color: '#888', marginTop: '5px' }} onClick={() => setStep('phone')}>BACK</div>
+
+                <div
+                  style={{
+                    cursor: 'pointer',
+                    fontSize: '10px',
+                    color: '#888',
+                    marginTop: '5px'
+                  }}
+                  onClick={backToPhone}
+                >
+                  BACK
+                </div>
               </form>
             )}
 
@@ -270,6 +353,7 @@ const LoginPopup = ({ isOpen, onClose }) => {
               <form onSubmit={handleVerify}>
                 <input
                   type="text"
+                  name="otp"
                   className="premium-input-field"
                   placeholder="ENTER 4-DIGIT OTP"
                   maxLength="4"
@@ -278,28 +362,25 @@ const LoginPopup = ({ isOpen, onClose }) => {
                   required
                   autoFocus
                 />
-                <button type="submit" className="premium-action-btn" disabled={isLoading}>
+
+                <button
+                  type="submit"
+                  className="premium-action-btn"
+                  disabled={isLoading}
+                >
                   {isLoading ? 'VERIFYING...' : 'VERIFY & LOGIN'}
                 </button>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', fontSize: '11px', fontFamily: 'inherit' }}>
-                  {canResend ? (
-                    <span
-                      style={{ cursor: 'pointer', color: '#6dbd2f', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}
-                      onClick={handleResendOtp}
-                    >
-                      ↺ Resend OTP
-                    </span>
-                  ) : (
-                    <span style={{ color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Resend in <strong style={{ color: '#6dbd2f' }}>{resendTimer}s</strong>
-                    </span>
-                  )}
-                  <span
-                    style={{ cursor: 'pointer', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}
-                    onClick={() => setStep('phone')}
-                  >
-                    Change Number
-                  </span>
+
+                <div
+                  style={{
+                    cursor: 'pointer',
+                    fontSize: '10px',
+                    color: '#888',
+                    marginTop: '5px'
+                  }}
+                  onClick={backToPhone}
+                >
+                  CHANGE NUMBER
                 </div>
               </form>
             )}

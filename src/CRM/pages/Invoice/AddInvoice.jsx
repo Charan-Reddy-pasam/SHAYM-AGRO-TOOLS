@@ -211,59 +211,41 @@ function AddInvoice() {
       setLoading(true);
       setApiError("");
 
-      const payload = {
-        invoice: {
-          invoiceId: isEditing ? Number(id) : 0,
-          invoiceNumber: formData.invoiceNo,
-          invoiceDate: new Date(formData.date).toISOString(),
-          clientName: formData.customer,
-          email: formData.email,
-          companyAddress: formData.companyAddress,
-          postalCode: formData.postalCode,
-          contactNo: sanitizedContactNo,
+      let payload;
+      if (isEditing) {
+        payload = {
+          status: formData.paymentStatus
+        };
+      } else {
+        payload = {
+          invoiceNo: formData.invoiceNo,
+          date: new Date(formData.date).toISOString(),
           paymentStatus: formData.paymentStatus,
+          clientName: formData.customer,
+          emailAddress: formData.email,
+          contactNo: sanitizedContactNo,
+          address: formData.companyAddress,
+          postalCode: formData.postalCode,
+          taxNumber: formData.taxNumber,
+          billingName: formData.billingName,
+          billingAddress: formData.billingAddress,
+          billingPhone: formData.billingPhone,
+          billingTaxNumber: formData.billingTaxNumber,
+          billingEmail: formData.billingEmail,
+          shippingName: formData.shippingName,
+          shippingAddress: formData.shippingAddress,
+          shippingPhone: formData.shippingPhone,
+          shippingTaxNumber: formData.shippingTaxNumber,
+          shippingEmail: formData.shippingEmail,
+          paymentMethod: formData.paymentMethod || "Cash",
           subTotal: lineSubTotal,
           taxAmount: estimatedTax,
-          discountAmount: Number(formData.discount || 0),
+          discount: Number(formData.discount || 0),
           shippingCharge: Number(formData.shippingCharge || 0),
           totalAmount: invoiceTotal,
-          notes: formData.notes,
-          invoiceStatus: formData.paymentStatus
-        },
-        items: formData.items.map(item => ({
-          itemId: Number(item.itemId || 0),
-          invoiceId: isEditing ? Number(id) : 0,
-          productName: item.productName,
-          productDetails: item.productDetails,
-          rate: Number(item.rate),
-          quantity: Number(item.quantity),
-          amount: Number(item.rate) * Number(item.quantity)
-        })),
-        billing: {
-          billingId: Number(formData.billingId || 0),
-          invoiceId: isEditing ? Number(id) : 0,
-          fullName: formData.billingName,
-          address: formData.billingAddress,
-          phone: formData.billingPhone,
-          taxNumber: formData.billingTaxNumber
-        },
-        shipping: {
-          shippingId: Number(formData.shippingId || 0),
-          invoiceId: isEditing ? Number(id) : 0,
-          fullName: formData.shippingName,
-          address: formData.shippingAddress,
-          phone: formData.shippingPhone,
-          taxNumber: formData.shippingTaxNumber
-        },
-        payment: {
-          paymentId: Number(formData.paymentId || 0),
-          invoiceId: isEditing ? Number(id) : 0,
-          paymentMethod: formData.paymentMethod,
-          cardHolderName: formData.paymentMethod === 'Card' ? formData.cardHolderName : "",
-          cardNumber: formData.paymentMethod === 'Card' ? formData.cardNumber : "",
-          cvv: ""
-        }
-      };
+          notes: formData.notes
+        };
+      }
 
       const result = await invoiceRequest(isEditing ? `${INVOICES_API_URL}/${id}` : INVOICES_API_URL, {
         method: isEditing ? "PUT" : "POST",

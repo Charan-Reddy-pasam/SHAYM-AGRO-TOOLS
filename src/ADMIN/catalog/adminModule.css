@@ -2046,3 +2046,152 @@
 .spin {
   animation: spin 1s linear infinite;
 }
+
+/* Outlook Animated Delete and Edit Buttons styling */
+.outlook-delete-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #64748b;
+  transition: all 0.2s ease-in-out;
+}
+
+.outlook-delete-btn:hover {
+  color: #dc2626 !important;
+  background-color: #fee2e2 !important;
+}
+
+.outlook-trash-svg {
+  width: 18px;
+  height: 18px;
+}
+
+.outlook-trash-svg .trash-lid {
+  transform-origin: 12px 6px;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.outlook-delete-btn:hover .outlook-trash-svg .trash-lid {
+  transform: translateY(-2.5px) rotate(-15deg);
+}
+
+.animated-edit-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #64748b;
+  transition: all 0.2s ease-in-out;
+  text-decoration: none;
+}
+
+.animated-edit-btn:hover {
+  color: #2563eb !important;
+  background-color: #dbeafe !important;
+}
+
+.animated-edit-svg {
+  width: 18px;
+  height: 18px;
+}
+
+.animated-edit-btn:hover .animated-edit-svg {
+  animation: edit-wiggle 0.3s ease-in-out;
+}
+
+@keyframes edit-wiggle {
+  0% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(-8deg) scale(1.1); }
+  75% { transform: rotate(8deg) scale(1.1); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+
+/* Pagination Styling */
+.admin-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-top: 1px solid #f1f5f9;
+  background: #fff;
+  border-radius: 0 0 12px 12px;
+}
+
+.admin-pagination__info {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.admin-pagination__buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-pagination__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.admin-pagination__btn:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.admin-pagination__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-pagination__pages {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.admin-pagination__page {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.admin-pagination__page:hover:not(.admin-pagination__page--active) {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.admin-pagination__page--active {
+  background: #2636b6;
+  border-color: #2636b6;
+  color: #fff;
+}
+

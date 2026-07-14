@@ -3,7 +3,7 @@ import { FiEdit, FiTrash2 } from "react-icons/fi";
 
 import "./Tickets.css";
 
-const API_URL = "https://satin-eastcoast-musky.ngrok-free.dev/api/Tickets";
+const API_URL = "https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Tickets";
 
 function Tickets() {
   const [showModal, setShowModal] = useState(false);
@@ -34,49 +34,49 @@ function Tickets() {
   };
 
   const normalizeTicket = (ticket) => {
+    if (!ticket) return {};
+    
+    // Status mapping: API "InProgress" -> Frontend "Pending"
+    let status = ticket.status || ticket.ticketStatus || "Open";
+    if (status === "InProgress") {
+      status = "Pending";
+    }
+
     return {
-      id: ticket.ticketId || ticket.TicketId || ticket.id,
-      ticketNo:
-        ticket.ticketNumber ||
-        ticket.TicketNumber ||
-        ticket.ticketNo ||
-        "",
-      customer:
-        ticket.customerName ||
-        ticket.CustomerName ||
-        ticket.customer ||
-        "",
-      issue:
-        ticket.issueName ||
-        ticket.IssueName ||
-        ticket.issue ||
-        "",
-      priority:
-        ticket.priorityName ||
-        ticket.PriorityName ||
-        ticket.priority ||
-        "Medium",
-      status:
-        ticket.ticketStatus ||
-        ticket.TicketStatus ||
-        ticket.status ||
-        "Open",
-      assignedTo:
-        ticket.assignedTo ||
-        ticket.AssignedTo ||
-        "",
+      id: ticket.id,
+      ticketNo: ticket.ticketId || ticket.ticketNumber || `TCK-${ticket.id}`,
+      customer: ticket.name || ticket.customerName || ticket.customer || "",
+      email: ticket.email || "",
+      phone: ticket.phone || "",
+      subject: ticket.subject || "General Enquiry",
+      issue: ticket.message || ticket.issueName || ticket.subject || ticket.issue || "",
+      sourceType: ticket.sourceType || "General",
+      priority: ticket.priority || ticket.priorityName || "Medium",
+      status: status,
+      assignedTo: ticket.assignedAgent || ticket.assignedTo || "",
+      notes: ticket.auditNote || ticket.notes || "No notes added",
+      createdAt: ticket.createdAt || ""
     };
   };
 
   const convertToApiTicket = (ticket) => {
+    let apiStatus = ticket.status || "Open";
+    if (apiStatus === "Pending" || apiStatus === "In Progress") {
+      apiStatus = "InProgress";
+    }
     return {
-      ticketId: ticket.id || 0,
-      ticketNumber: ticket.ticketNo,
-      customerName: ticket.customer,
-      issueName: ticket.issue,
-      priorityName: ticket.priority,
-      ticketStatus: ticket.status,
-      assignedTo: ticket.assignedTo,
+      id: ticket.id ? Number(ticket.id) : 0,
+      ticketId: ticket.ticketNo || "",
+      name: ticket.customer || "",
+      email: ticket.email || "",
+      phone: ticket.phone || "",
+      subject: ticket.subject || "General Enquiry",
+      message: ticket.issue || "",
+      sourceType: ticket.sourceType || "General",
+      priority: ticket.priority || "Medium",
+      status: apiStatus,
+      assignedAgent: ticket.assignedTo || null,
+      auditNote: ticket.notes || "No notes added"
     };
   };
 
@@ -95,10 +95,11 @@ function Tickets() {
       }
 
       const data = await response.json();
+      const ticketsList = data && Array.isArray(data.tickets) 
+        ? data.tickets 
+        : (Array.isArray(data) ? data : []);
 
-      const formattedData = Array.isArray(data)
-        ? data.map(normalizeTicket)
-        : [];
+      const formattedData = ticketsList.map(normalizeTicket);
 
       setTickets(formattedData);
     } catch (error) {
@@ -124,7 +125,7 @@ function Tickets() {
 
       const data = await response.json();
 
-      return normalizeTicket(data);
+      return normalizeTicket(data.ticket || data);
     } catch (error) {
       console.error("GET Ticket By ID Error:", error);
       setApiError("Unable to load selected ticket details.");

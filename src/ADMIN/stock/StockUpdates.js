@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   Filter,
@@ -23,6 +23,13 @@ import {
 } from 'lucide-react';
 import '../catalog/adminModule.css';
 import './StockUpdates.css';
+import { Pagination } from '../components/ActionButtons';
+import { fetchCategories } from '../catalog/catalogApi';
+import {
+  getStockLedger,
+  adjustStock,
+  addStockEntry,
+} from '../api/stock';
 
 /* ─── Mock Data ─────────────────────────────────────────── */
 const INITIAL_STOCK = [
@@ -38,7 +45,6 @@ const INITIAL_STOCK = [
   { id: 10, sku: 'SAT-WHL-008', name: 'Wheelbarrow (180L Capacity)', category: 'Farm Tools', subcategory: 'Material Handling', supplier: 'Agri Implements Co.', currentStock: 0, reorderLevel: 12, unit: 'Pcs', costPrice: 2200, sellingPrice: 3400, status: 'Out of Stock', lastUpdated: '2026-06-25', trend: 'down', change: -100 },
 ];
 
-const CATEGORIES = ['All', 'Irrigation Systems', 'Harvesting Tools', 'Fertilizer Equipment', 'Pumps & Motors', 'Pesticide Equipment', 'Solar Equipment', 'Seeding Equipment', 'Farm Tools'];
 const STATUSES = ['All', 'In Stock', 'Low Stock', 'Out of Stock'];
 
 const statusMeta = {
@@ -77,23 +83,47 @@ const TrendIndicator = ({ trend, change }) => {
 };
 
 /* ─── Adjust Modal ───────────────────────────────────── */
-const AdjustModal = ({ item, onClose, onSave }) => {
+const AdjustModal = ({ item: initialItem, products = [], onClose, onSave }) => {
+  const [selectedItem, setSelectedItem] = useState(initialItem);
   const [adjustType, setAdjustType] = useState('add');
   const [qty, setQty] = useState('');
   const [reason, setReason] = useState('');
   const [note, setNote] = useState('');
 
+  // Search product states
+  const [productSearch, setProductSearch] = useState('');
+  const [showProductDropdown, setShowProductDropdown] = useState(false);
+
+  // Filter products for dropdown
+  const filteredProducts = useMemo(() => {
+    const q = productSearch.toLowerCase().trim();
+    if (!q) return products.slice(0, 8);
+    return products.filter(p => 
+      (p.name || '').toLowerCase().includes(q) ||
+      (p.sku || '').toLowerCase().includes(q)
+    );
+  }, [products, productSearch]);
+
   const reasons = adjustType === 'add'
     ? ['Stock Received', 'Return from Customer', 'Transfer In', 'Correction - Surplus', 'Other']
     : ['Sale / Dispatch', 'Damaged / Spoiled', 'Transfer Out', 'Correction - Deficit', 'Other'];
 
+  const currentStock = selectedItem ? selectedItem.currentStock : 0;
+  const unit = selectedItem ? selectedItem.unit : 'Pcs';
+
   const newQty = adjustType === 'add'
-    ? item.currentStock + Number(qty || 0)
-    : Math.max(0, item.currentStock - Number(qty || 0));
+    ? currentStock + Number(qty || 0)
+    : Math.max(0, currentStock - Number(qty || 0));
 
   const handleSave = () => {
-    if (!qty || Number(qty) <= 0) return;
-    onSave({ ...item, currentStock: newQty });
+    if (!selectedItem || !qty || Number(qty) <= 0) return;
+    onSave(selectedItem, {
+      actionType: adjustType === 'add' ? 'Add' : 'Remove',
+      quantity: Number(qty),
+      reason: reason || 'Other',
+      note: note || '',
+      newQty: newQty
+    });
   };
 
   return (
@@ -101,14 +131,53 @@ const AdjustModal = ({ item, onClose, onSave }) => {
       <div className="stock-modal" onClick={(e) => e.stopPropagation()}>
         <div className="stock-modal__header">
           <div>
-            <p className="stock-modal__kicker">Stock Adjustment</p>
-            <h2 className="stock-modal__title">{item.name}</h2>
-            <p className="stock-modal__sku">SKU: {item.sku}</p>
+            <p className="stock-modal__kicker">Stock Ledger Adjustment</p>
+            <h2 className="stock-modal__title">{selectedItem ? selectedItem.name : 'Select Product...'}</h2>
+            <p className="stock-modal__sku">SKU: {selectedItem ? selectedItem.sku : '—'}</p>
           </div>
           <button className="stock-modal__close" onClick={onClose}><X size={20} /></button>
         </div>
 
         <div className="stock-modal__body">
+          {/* Product Autocomplete Dropdown */}
+          <div className="catalog-field relative">
+            <label>Search Product to Adjust</label>
+            <div className="relative">
+              <input
+                type="text"
+                placeholder={selectedItem ? `${selectedItem.name} (${selectedItem.sku})` : "Type name or SKU..."}
+                value={productSearch}
+                onChange={(e) => {
+                  setProductSearch(e.target.value);
+                  setShowProductDropdown(true);
+                }}
+                onFocus={() => setShowProductDropdown(true)}
+                className="w-full"
+              />
+              {showProductDropdown && (
+                <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto z-50">
+                  {filteredProducts.map(p => (
+                    <div
+                      key={p.id}
+                      onClick={() => {
+                        setSelectedItem(p);
+                        setProductSearch('');
+                        setShowProductDropdown(false);
+                      }}
+                      className="p-2 text-xs hover:bg-slate-50 cursor-pointer border-b border-slate-100 flex justify-between"
+                    >
+                      <span className="font-semibold">{p.name}</span>
+                      <span className="text-slate-400">{p.sku}</span>
+                    </div>
+                  ))}
+                  {filteredProducts.length === 0 && (
+                    <div className="p-2 text-xs text-slate-400 text-center">No products found</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Type Toggle */}
           <div className="stock-adj-toggle">
             <button
@@ -129,20 +198,20 @@ const AdjustModal = ({ item, onClose, onSave }) => {
           <div className="stock-adj-preview">
             <div className="stock-adj-preview__item">
               <span>Current Stock</span>
-              <strong>{item.currentStock} {item.unit}</strong>
+              <strong>{currentStock} {unit}</strong>
             </div>
             <div className="stock-adj-preview__arrow">
               {adjustType === 'add' ? <TrendingUp size={20} className="adj-icon-add" /> : <TrendingDown size={20} className="adj-icon-remove" />}
             </div>
             <div className="stock-adj-preview__item">
               <span>New Stock</span>
-              <strong className={adjustType === 'add' ? 'adj-new--add' : 'adj-new--remove'}>{newQty} {item.unit}</strong>
+              <strong className={adjustType === 'add' ? 'adj-new--add' : 'adj-new--remove'}>{newQty} {unit}</strong>
             </div>
           </div>
 
           <div className="stock-modal__fields">
             <div className="catalog-field">
-              <label>Quantity ({item.unit})</label>
+              <label>Quantity ({unit})</label>
               <input
                 type="number"
                 min="1"
@@ -165,7 +234,7 @@ const AdjustModal = ({ item, onClose, onSave }) => {
                 placeholder="Add internal note about this adjustment..."
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                style={{ minHeight: 72 }}
+                style={{ minHeight: 60 }}
               />
             </div>
           </div>
@@ -176,7 +245,7 @@ const AdjustModal = ({ item, onClose, onSave }) => {
           <button
             className={`catalog-btn ${adjustType === 'add' ? 'catalog-btn--primary' : 'catalog-btn--remove'}`}
             onClick={handleSave}
-            disabled={!qty || Number(qty) <= 0}
+            disabled={!selectedItem || !qty || Number(qty) <= 0}
           >
             <Save size={16} />
             Save Adjustment
@@ -188,7 +257,7 @@ const AdjustModal = ({ item, onClose, onSave }) => {
 };
 
 /* ─── Add Entry Modal ─────────────────────────────────── */
-const AddEntryModal = ({ onClose, onSave }) => {
+const AddEntryModal = ({ categories = [], onClose, onSave }) => {
   const [sku, setSku] = useState('');
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
@@ -206,19 +275,21 @@ const AddEntryModal = ({ onClose, onSave }) => {
       return;
     }
     
+    const catObj = categories.find(c => (c.name || c) === category);
+    const categoryId = catObj ? Number(catObj.id) : null;
+
     onSave({
       sku: sku.toUpperCase().trim(),
-      name: name.trim(),
-      category,
-      subcategory: subcategory.trim() || 'General',
-      supplier: supplier.trim() || 'Unknown',
-      currentStock: Number(currentStock),
+      productName: name.trim(),
+      categoryId: categoryId,
+      categoryName: category,
+      subcategoryName: subcategory.trim() || 'General',
+      supplierName: supplier.trim() || 'Unknown',
+      initialStockQty: Number(currentStock),
       reorderLevel: Number(reorderLevel),
-      unit,
+      stockUnit: unit,
       costPrice: Number(costPrice),
-      sellingPrice: Number(sellingPrice),
-      trend: 'stable',
-      change: 0
+      sellingPrice: Number(sellingPrice)
     });
   };
 
@@ -279,9 +350,10 @@ const AddEntryModal = ({ onClose, onSave }) => {
                   <label>Category <span className="field-required">*</span></label>
                   <select value={category} onChange={(e) => setCategory(e.target.value)} required>
                     <option value="">Select Category...</option>
-                    {CATEGORIES.filter(c => c !== 'All').map(c => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
+                    {categories.map(c => {
+                      const name = c.name || c;
+                      return <option key={name} value={name}>{name}</option>;
+                    })}
                   </select>
                 </div>
 
@@ -408,15 +480,69 @@ const AddEntryModal = ({ onClose, onSave }) => {
   );
 };
 
+const saveLocalStock = (stock) => {
+  localStorage.setItem('shyam_stock_ledger', JSON.stringify(stock));
+};
+
+const getLocalStock = () => {
+  const local = localStorage.getItem('shyam_stock_ledger');
+  return local ? JSON.parse(local) : INITIAL_STOCK;
+};
+
 /* ─── Main Screen ────────────────────────────────────── */
 const StockUpdates = () => {
-  const [items, setItems] = useState(INITIAL_STOCK);
+  const [items, setItems] = useState([]);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
   const [adjustingItem, setAdjustingItem] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
+  
+  const [apiCategories, setApiCategories] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [notification, setNotification] = useState(null);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  const showNotification = (message, type = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 5000);
+  };
+
+  const loadLedger = async () => {
+    setLoading(true);
+    try {
+      const data = await getStockLedger();
+      if (data && data.length > 0) {
+        setItems(data);
+        saveLocalStock(data);
+      } else {
+        setItems(getLocalStock());
+      }
+    } catch (err) {
+      console.warn("Failed to fetch stock ledger from API, using localStorage:", err);
+      setItems(getLocalStock());
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadCategories = async () => {
+    try {
+      const cats = await fetchCategories();
+      setApiCategories(cats);
+    } catch (err) {
+      console.warn("Failed to fetch dynamic categories:", err);
+    }
+  };
+
+  useEffect(() => {
+    loadLedger();
+    loadCategories();
+  }, []);
 
   /* ── Metrics ── */
   const metrics = useMemo(() => ({
@@ -438,97 +564,185 @@ const StockUpdates = () => {
     });
   }, [items, search, categoryFilter, statusFilter]);
 
-  const handleSaveAdjust = (updated) => {
-    const newStatus = updated.currentStock === 0
-      ? 'Out of Stock'
-      : updated.currentStock <= updated.reorderLevel
-        ? 'Low Stock'
-        : 'In Stock';
-    setItems(prev => prev.map(i =>
-      i.id === updated.id
-        ? { ...updated, status: newStatus, lastUpdated: new Date().toISOString().slice(0, 10) }
-        : i
-    ));
-    setAdjustingItem(null);
+  // Extract unique categories from actual items dynamically for the filter dropdown
+  const filterCategories = useMemo(() => {
+    const list = new Set(items.map(i => i.category).filter(Boolean));
+    return ['All', ...Array.from(list)];
+  }, [items]);
+
+  // Reset page when filter/search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, categoryFilter, statusFilter]);
+
+  const handleSaveAdjust = async (item, adjustmentData) => {
+    setLoading(true);
+    try {
+      await adjustStock(item.id, adjustmentData);
+      showNotification('Stock adjusted successfully!', 'success');
+      await loadLedger();
+    } catch (err) {
+      console.warn("Failed to adjust stock on API, falling back to local simulation:", err);
+      showNotification('API Offline. Stock adjusted locally.', 'error');
+      
+      const updatedQty = adjustmentData.newQty;
+      const newStatus = updatedQty === 0
+        ? 'Out of Stock'
+        : updatedQty <= item.reorderLevel
+          ? 'Low Stock'
+          : 'In Stock';
+          
+      const updatedItem = {
+        ...item,
+        currentStock: updatedQty,
+        status: newStatus,
+        lastUpdated: new Date().toISOString().slice(0, 10)
+      };
+      
+      const newItems = items.map(i => i.id === item.id ? updatedItem : i);
+      setItems(newItems);
+      saveLocalStock(newItems);
+    } finally {
+      setLoading(false);
+      setAdjustingItem(null);
+    }
   };
 
-  const handleRefresh = () => setLastRefreshed(new Date());
+  const handleSaveAdd = async (newEntry) => {
+    setLoading(true);
+    try {
+      await addStockEntry(newEntry);
+      showNotification('New stock entry added successfully!', 'success');
+      await loadLedger();
+      setShowAddModal(false);
+    } catch (err) {
+      console.warn("Failed to add stock entry on API, falling back to local simulation:", err);
+      showNotification('API Offline. Entry added locally.', 'error');
+      
+      const simulatedItem = {
+        id: items.length ? Math.max(...items.map(i => Number(i.id) || 0)) + 1 : 1,
+        sku: newEntry.sku,
+        name: newEntry.productName,
+        category: newEntry.categoryName || 'General',
+        categoryId: newEntry.categoryId || '',
+        subcategory: newEntry.subcategoryName,
+        supplier: newEntry.supplierName,
+        currentStock: newEntry.initialStockQty,
+        reorderLevel: newEntry.reorderLevel,
+        unit: newEntry.stockUnit,
+        costPrice: newEntry.costPrice,
+        sellingPrice: newEntry.sellingPrice,
+        status: newEntry.initialStockQty === 0
+          ? 'Out of Stock'
+          : newEntry.initialStockQty <= newEntry.reorderLevel
+            ? 'Low Stock'
+            : 'In Stock',
+        lastUpdated: new Date().toISOString().slice(0, 10),
+        trend: 'stable',
+        change: 0
+      };
+      
+      const newItems = [...items, simulatedItem];
+      setItems(newItems);
+      saveLocalStock(newItems);
+      setShowAddModal(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setLastRefreshed(new Date());
+    await loadLedger();
+  };
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+  const pagedItems = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <div className="stock-page">
+      {/* Toast Notification */}
+      {notification && (
+        <div className={`stock-notification ${notification.type}`}>
+          <span>{notification.message}</span>
+        </div>
+      )}
       {/* ── Header ── */}
       <section className="catalog-header stock-header">
         <div className="catalog-title-wrap">
           <span className="catalog-kicker">Inventory</span>
-          <h1>Stock Updates</h1>
-          <p>Monitor inventory levels, receive alerts for low-stock items, and make real-time adjustments across all product SKUs.</p>
+          <h1>Stock Ledger</h1>
+          <p className="catalog-card__subtitle" style={{ margin: 0, fontSize: '12px' }}>
+            {metrics.total} SKUs tracked &nbsp;·&nbsp;
+            Last refreshed: {lastRefreshed.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+          </p>
         </div>
         <div className="stock-header-actions">
-          <button className="catalog-btn stock-refresh-btn" onClick={handleRefresh} title="Refresh">
-            <RefreshCw size={15} />
-            <span>Refresh</span>
+          <button className="catalog-btn stock-refresh-btn" onClick={handleRefresh} title="Refresh" disabled={loading}>
+            <RefreshCw size={14} style={loading ? { animation: 'spin 1.5s linear infinite' } : {}} />
+            <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
           </button>
           <button className="catalog-btn" title="Export stock report">
-            <Download size={15} />
+            <Download size={14} />
             <span>Export</span>
           </button>
+          <button className="catalog-btn" onClick={() => setAdjustingItem(items[0] || null)} title="Adjust Stock Ledger">
+            <TrendingUp size={14} />
+            <span>Adjust Stock</span>
+          </button>
           <button className="catalog-btn catalog-btn--primary" onClick={() => setShowAddModal(true)} title="Add new stock entry">
-            <Plus size={15} />
+            <Plus size={14} />
             <span>Add Entry</span>
           </button>
         </div>
       </section>
 
-      {/* ── KPI Cards ── */}
-      <div className="stock-metrics-grid">
-        <div className="stock-metric-card stock-metric-card--blue">
-          <div className="stock-metric-card__icon">
-            <Boxes size={22} />
+      {/* ── KPI Cards (Smaller) ── */}
+      <div className="stock-metrics-grid" style={{ gap: '10px' }}>
+        <div className="stock-metric-card stock-metric-card--blue" style={{ padding: '12px 14px' }}>
+          <div className="stock-metric-card__icon" style={{ width: '36px', height: '36px' }}>
+            <Boxes size={18} />
           </div>
           <div className="stock-metric-card__body">
-            <span>Total SKUs</span>
-            <strong>{metrics.total}</strong>
-            <p>Products tracked</p>
+            <span style={{ fontSize: '10px' }}>Total SKUs</span>
+            <strong style={{ fontSize: '18px' }}>{metrics.total}</strong>
           </div>
         </div>
-        <div className="stock-metric-card stock-metric-card--green">
-          <div className="stock-metric-card__icon">
-            <CheckCircle2 size={22} />
+        <div className="stock-metric-card stock-metric-card--green" style={{ padding: '12px 14px' }}>
+          <div className="stock-metric-card__icon" style={{ width: '36px', height: '36px' }}>
+            <CheckCircle2 size={18} />
           </div>
           <div className="stock-metric-card__body">
-            <span>In Stock</span>
-            <strong>{metrics.inStock}</strong>
-            <p>Adequate inventory</p>
+            <span style={{ fontSize: '10px' }}>In Stock</span>
+            <strong style={{ fontSize: '18px' }}>{metrics.inStock}</strong>
           </div>
         </div>
-        <div className="stock-metric-card stock-metric-card--amber">
-          <div className="stock-metric-card__icon">
-            <AlertTriangle size={22} />
+        <div className="stock-metric-card stock-metric-card--amber" style={{ padding: '12px 14px' }}>
+          <div className="stock-metric-card__icon" style={{ width: '36px', height: '36px' }}>
+            <AlertTriangle size={18} />
           </div>
           <div className="stock-metric-card__body">
-            <span>Low Stock</span>
-            <strong>{metrics.lowStock}</strong>
-            <p>Below reorder level</p>
+            <span style={{ fontSize: '10px' }}>Low Stock</span>
+            <strong style={{ fontSize: '18px' }}>{metrics.lowStock}</strong>
           </div>
         </div>
-        <div className="stock-metric-card stock-metric-card--red">
-          <div className="stock-metric-card__icon">
-            <Package size={22} />
+        <div className="stock-metric-card stock-metric-card--red" style={{ padding: '12px 14px' }}>
+          <div className="stock-metric-card__icon" style={{ width: '36px', height: '36px' }}>
+            <Package size={18} />
           </div>
           <div className="stock-metric-card__body">
-            <span>Out of Stock</span>
-            <strong>{metrics.outOfStock}</strong>
-            <p>Needs immediate action</p>
+            <span style={{ fontSize: '10px' }}>Out of Stock</span>
+            <strong style={{ fontSize: '18px' }}>{metrics.outOfStock}</strong>
           </div>
         </div>
-        <div className="stock-metric-card stock-metric-card--indigo">
-          <div className="stock-metric-card__icon">
-            <BarChart3 size={22} />
+        <div className="stock-metric-card stock-metric-card--indigo" style={{ padding: '12px 14px' }}>
+          <div className="stock-metric-card__icon" style={{ width: '36px', height: '36px' }}>
+            <BarChart3 size={18} />
           </div>
           <div className="stock-metric-card__body">
-            <span>Inventory Value</span>
-            <strong>{formatINR(metrics.totalValue)}</strong>
-            <p>At cost price</p>
+            <span style={{ fontSize: '10px' }}>Inventory Value</span>
+            <strong style={{ fontSize: '18px' }}>{formatINR(metrics.totalValue)}</strong>
           </div>
         </div>
       </div>
@@ -537,10 +751,9 @@ const StockUpdates = () => {
       <section className="catalog-card">
         <div className="catalog-card__header">
           <div>
-            <h2>Stock Ledger</h2>
+            <h2>Ledger Entries</h2>
             <p className="catalog-card__subtitle">
-              {filtered.length} of {items.length} products &nbsp;·&nbsp;
-              Last refreshed: {lastRefreshed.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+              {filtered.length} products match filters
             </p>
           </div>
           <div className="stock-legend">
@@ -556,7 +769,7 @@ const StockUpdates = () => {
             <Search size={18} />
             <input
               type="search"
-              placeholder="Search by SKU, product name, category, or supplier..."
+              placeholder="Search by SKU, product name, category..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -565,7 +778,7 @@ const StockUpdates = () => {
             <label className="catalog-filter">
               <Filter size={15} />
               <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-                {CATEGORIES.map(c => <option key={c} value={c}>{c === 'All' ? 'All Categories' : c}</option>)}
+                {filterCategories.map(c => <option key={c} value={c}>{c === 'All' ? 'All Categories' : c}</option>)}
               </select>
             </label>
             <label className="catalog-filter">
@@ -581,52 +794,63 @@ const StockUpdates = () => {
         <div className="catalog-table-wrap">
           <table className="catalog-table stock-table">
             <thead>
-              <tr>
-                <th>Product / SKU</th>
-                <th>Category</th>
-                <th>Supplier</th>
-                <th className="catalog-number-cell">Current Stock</th>
-                <th className="catalog-number-cell">Reorder Level</th>
-                <th>Status</th>
-                <th>30-Day Trend</th>
-                <th className="catalog-number-cell">Cost Price</th>
-                <th className="catalog-number-cell">Selling Price</th>
-                <th>Last Updated</th>
-                <th className="catalog-center-cell">Actions</th>
+              <tr style={{ fontSize: '11px' }}>
+                <th style={{ padding: '8px 12px' }}>Product / SKU</th>
+                <th style={{ padding: '8px 12px' }}>Category</th>
+                <th style={{ padding: '8px 12px' }}>Supplier</th>
+                <th className="catalog-number-cell" style={{ padding: '8px 12px' }}>Current Stock</th>
+                <th className="catalog-number-cell" style={{ padding: '8px 12px' }}>Reorder Level</th>
+                <th style={{ padding: '8px 12px' }}>Status</th>
+                <th style={{ padding: '8px 12px' }}>30-Day Trend</th>
+                <th className="catalog-number-cell" style={{ padding: '8px 12px' }}>Cost Price</th>
+                <th className="catalog-number-cell" style={{ padding: '8px 12px' }}>Selling Price</th>
+                <th style={{ padding: '8px 12px' }}>Last Updated</th>
+                <th className="catalog-center-cell" style={{ padding: '8px 12px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((item) => (
-                <tr key={item.id} className={item.status === 'Out of Stock' ? 'stock-row--alert' : item.status === 'Low Stock' ? 'stock-row--warning' : ''}>
-                  <td>
-                    <div className="catalog-table__title">{item.name}</div>
-                    <div className="catalog-table__muted">{item.sku} &nbsp;·&nbsp; {item.unit}</div>
+              {pagedItems.map((item) => (
+                <tr 
+                  key={item.id} 
+                  className={
+                    item.status === 'Out of Stock' 
+                      ? 'stock-row--alert' 
+                      : item.status === 'Low Stock' 
+                        ? 'stock-row--warning' 
+                        : 'stock-row--success'
+                  }
+                  style={{ fontSize: '12px' }}
+                >
+                  <td style={{ padding: '6px 12px' }}>
+                    <div className="catalog-table__title" style={{ fontSize: '12px', fontWeight: 600 }}>{item.name}</div>
+                    <div className="catalog-table__muted" style={{ fontSize: '10px' }}>{item.sku} &nbsp;·&nbsp; {item.unit}</div>
                   </td>
-                  <td>
-                    <div className="catalog-table__title">{item.category}</div>
-                    <div className="catalog-table__muted">{item.subcategory}</div>
+                  <td style={{ padding: '6px 12px' }}>
+                    <div className="catalog-table__title" style={{ fontSize: '12px' }}>{item.category}</div>
+                    <div className="catalog-table__muted" style={{ fontSize: '10px' }}>{item.subcategory}</div>
                   </td>
-                  <td>{item.supplier}</td>
-                  <td className="catalog-number-cell">
-                    <span className={`stock-qty ${item.status === 'Out of Stock' ? 'stock-qty--zero' : item.status === 'Low Stock' ? 'stock-qty--low' : 'stock-qty--ok'}`}>
+                  <td style={{ padding: '6px 12px' }}>{item.supplier}</td>
+                  <td className="catalog-number-cell" style={{ padding: '6px 12px' }}>
+                    <span className={`stock-qty ${item.status === 'Out of Stock' ? 'stock-qty--zero' : item.status === 'Low Stock' ? 'stock-qty--low' : 'stock-qty--ok'}`} style={{ fontSize: '12px', padding: '2px 8px' }}>
                       {item.currentStock}
                     </span>
                   </td>
-                  <td className="catalog-number-cell">{item.reorderLevel}</td>
-                  <td><StockBadge status={item.status} /></td>
-                  <td><TrendIndicator trend={item.trend} change={item.change} /></td>
-                  <td className="catalog-number-cell">{formatINR(item.costPrice)}</td>
-                  <td className="catalog-number-cell">{formatINR(item.sellingPrice)}</td>
-                  <td>
-                    <div className="catalog-table__muted">{item.lastUpdated}</div>
+                  <td className="catalog-number-cell" style={{ padding: '6px 12px' }}>{item.reorderLevel}</td>
+                  <td style={{ padding: '6px 12px' }}><StockBadge status={item.status} /></td>
+                  <td style={{ padding: '6px 12px' }}><TrendIndicator trend={item.trend} change={item.change} /></td>
+                  <td className="catalog-number-cell" style={{ padding: '6px 12px' }}>{formatINR(item.costPrice)}</td>
+                  <td className="catalog-number-cell" style={{ padding: '6px 12px' }}>{formatINR(item.sellingPrice)}</td>
+                  <td style={{ padding: '6px 12px' }}>
+                    <div className="catalog-table__muted" style={{ fontSize: '11px' }}>{item.lastUpdated}</div>
                   </td>
-                  <td className="catalog-center-cell">
+                  <td className="catalog-center-cell" style={{ padding: '6px 12px' }}>
                     <button
                       className="catalog-btn catalog-btn--icon stock-adjust-btn"
                       title="Adjust stock"
                       onClick={() => setAdjustingItem(item)}
+                      style={{ padding: '4px 6px' }}
                     >
-                      <Edit3 size={15} />
+                      <Edit3 size={13} />
                     </button>
                   </td>
                 </tr>
@@ -641,12 +865,21 @@ const StockUpdates = () => {
             </tbody>
           </table>
         </div>
+
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={filtered.length}
+          itemsPerPage={itemsPerPage}
+        />
       </section>
 
       {/* ── Adjust Modal ── */}
       {adjustingItem && (
         <AdjustModal
           item={adjustingItem}
+          products={items}
           onClose={() => setAdjustingItem(null)}
           onSave={handleSaveAdjust}
         />
@@ -655,23 +888,9 @@ const StockUpdates = () => {
       {/* ── Add Entry Modal ── */}
       {showAddModal && (
         <AddEntryModal
+          categories={apiCategories.length > 0 ? apiCategories : filterCategories.filter(c => c !== 'All').map(c => ({ name: c }))}
           onClose={() => setShowAddModal(false)}
-          onSave={(newEntry) => {
-            setItems(prev => [
-              ...prev,
-              {
-                id: prev.length ? Math.max(...prev.map(i => i.id)) + 1 : 1,
-                ...newEntry,
-                status: newEntry.currentStock === 0
-                  ? 'Out of Stock'
-                  : newEntry.currentStock <= newEntry.reorderLevel
-                    ? 'Low Stock'
-                    : 'In Stock',
-                lastUpdated: new Date().toISOString().slice(0, 10)
-              }
-            ]);
-            setShowAddModal(false);
-          }}
+          onSave={handleSaveAdd}
         />
       )}
     </div>

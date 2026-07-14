@@ -7,12 +7,15 @@ import OfferBanners from '../components/OfferBanners';
 import Testimonials from '../components/Testimonials';
 import BlogSection from '../components/BlogSection';
 import BrandSlider from '../components/BrandSlider';
+import TrustRatingSection from '../components/TrustRatingSection';
 import Footer from '../components/Footer';
 import LoginPopup from '../components/LoginPopup';
+import { useLanguage } from '../context/LanguageContext';
 import { ArrowUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const Home = () => {
+  const { t } = useLanguage();
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
@@ -32,7 +35,7 @@ const Home = () => {
   };
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="home-page flex flex-col min-h-screen">
       {/* Header with sticky navigation */}
       <Header onLoginClick={() => setIsLoginOpen(true)} />
 
@@ -40,26 +43,26 @@ const Home = () => {
         {/* Full-width Hero Slider */}
         <Hero />
 
-        {/* Brand Logo Slider */}
-        <BrandSlider />
-
         {/* Categories Section */}
         <HomeCategories />
-
-        {/* Featured Products */}
-        <FeaturedProducts title="FEATURED MACHINERY" subtitle="Modern Agriculture" limit={4} />
 
         {/* Offer Banners */}
         <OfferBanners />
 
         {/* Trending Section */}
-        <FeaturedProducts title="TRENDING NOW" subtitle="Most Popular" limit={8} />
+        <FeaturedProducts title={t('trendingNow')} subtitle={t('mostPopular')} limit={8} />
+
+        {/* Trust Rating Section */}
+        <TrustRatingSection />
 
         {/* Testimonials */}
         <Testimonials />
 
         {/* Blog Section */}
         <BlogSection />
+
+        {/* Brand Logo Slider */}
+        <BrandSlider />
       </main>
 
       {/* Elegant Dark Footer */}
@@ -74,15 +77,13 @@ const Home = () => {
             exit={{ opacity: 0, scale: 0 }}
             onClick={scrollToTop}
             className="fixed bottom-8 right-8 z-[100] w-12 h-12 bg-primary text-white flex items-center justify-center rounded-full shadow-2xl hover:bg-dark transition-all duration-300"
+            aria-label={t('backToTop')}
           >
             <ArrowUp size={24} />
           </motion.button>
         )}
       </AnimatePresence>
 
-      {/* Overlays */}
-      <LoginPopup isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
-      
       {/* Overlays */}
       <LoginPopup isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
     </div>

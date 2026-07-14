@@ -71,6 +71,17 @@ function Invoice() {
       setApiError("");
 
       const data = await invoiceRequest(INVOICES_API_URL);
+
+      if (data) {
+        const total = data.totalRevenue ? Number(String(data.totalRevenue).replace(/[^0-9.]/g, '')) : 0;
+        setStats({
+          total,
+          paid: data.paidInvoices || 0,
+          unpaid: data.unpaidInvoices || 0,
+          cancelled: data.cancelledInvoices || 0,
+        });
+      }
+
       setInvoices(normalizeInvoiceCollection(data).map(normalizeInvoice));
     } catch (error) {
       console.error("GET Invoices Error:", error);

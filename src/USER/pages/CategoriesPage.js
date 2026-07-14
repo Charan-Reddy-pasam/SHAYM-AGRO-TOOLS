@@ -1,83 +1,94 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
-import Footer from '../components/Footer';
 import LoginPopup from '../components/LoginPopup';
-import { categories } from '../data/categories';
+import CategoryCard from '../components/CategoryCard';
+import { useCategories } from '../context/CategoryContext';
+import { useLanguage } from '../context/LanguageContext';
 import { motion } from 'framer-motion';
-import { ChevronRight } from 'lucide-react';
 
 const CategoriesPage = () => {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const {
+    mappedCategories,
+    categoriesLoading,
+    subcategoriesLoading,
+    categoriesError,
+    subcategoriesError,
+  } = useCategories();
   const navigate = useNavigate();
+  const { t } = useLanguage();
+  const loading = categoriesLoading || subcategoriesLoading;
 
   return (
     <div className="flex flex-col min-h-screen bg-light">
       <Header onLoginClick={() => setIsLoginOpen(true)} />
       
-      <main className="flex-grow section-padding">
-        <div className="max-w-[1440px] mx-auto">
-          <div className="mb-16 text-center">
+      <main className="flex-grow px-2 py-3 md:px-3 lg:px-4">
+        <div className="mx-auto w-full max-w-[1840px]">
+          <div className="mb-3 text-center">
             <motion.span 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="text-primary font-bold tracking-[4px] text-sm uppercase mb-2 block"
+              className="mb-1 block text-[10px] font-semibold uppercase tracking-[3px] text-dark"
             >
-              Our Collections
+              {t('ourCollections')}
             </motion.span>
             <motion.h1 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-4xl md:text-6xl font-bold text-dark uppercase"
+              className="text-2xl font-semibold uppercase text-dark md:text-4xl"
             >
-              ALL CATEGORIES
+              {t('allCategories')}
             </motion.h1>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
-            {categories.map((cat, index) => (
+          <div className="categories-page-grid">
+            {loading && (
+              <div className="col-span-full py-10 text-center text-sm font-semibold text-gray-500">
+                Loading...
+              </div>
+            )}
+
+            {!loading && categoriesError && (
+              <div className="col-span-full py-10 text-center text-sm font-semibold text-gray-500">
+                {categoriesError}
+                <br />
+                Please try again.
+              </div>
+            )}
+
+            {!loading && !categoriesError && subcategoriesError && (
+              <div className="col-span-full py-4 text-center text-sm font-semibold text-gray-500">
+                {subcategoriesError}
+                <br />
+                Please try again.
+              </div>
+            )}
+
+            {!loading && !categoriesError && mappedCategories.length === 0 && (
+              <div className="col-span-full py-10 text-center text-sm font-semibold text-gray-500">
+                No Categories Available
+              </div>
+            )}
+
+            {!loading && !categoriesError && mappedCategories.map((cat, index) => (
               <motion.div 
                 key={cat.id} 
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
-                className="bg-white border border-border group hover:shadow-2xl transition-all duration-500 overflow-hidden"
               >
-                <div className="p-10">
-                  <div className="flex items-center gap-4 mb-8">
-                    <div className="w-16 h-16 rounded-full bg-light flex items-center justify-center text-primary text-2xl group-hover:bg-primary group-hover:text-white transition-all duration-300">
-                      <i className={cat.icon}></i>
-                    </div>
-                    <h2 className="text-2xl font-bold text-dark group-hover:text-primary transition-colors uppercase tracking-tight">{cat.name}</h2>
-                  </div>
-                  
-                  <div className="space-y-3 mb-10">
-                    {cat.sub.map((sub, i) => (
-                      <div 
-                        key={i} 
-                        onClick={() => navigate(`/category/${cat.id}`)}
-                        className="flex items-center justify-between text-gray-500 hover:text-primary transition-colors cursor-pointer group/sub"
-                      >
-                        <span className="text-sm font-medium">{sub.name}</span>
-                        <ChevronRight size={14} className="opacity-0 group-hover/sub:opacity-100 transition-opacity" />
-                      </div>
-                    ))}
-                  </div>
-
-                  <button 
-                    onClick={() => navigate(`/category/${cat.id}`)}
-                    className="w-full btn-outline py-4 text-xs font-bold"
-                  >
-                    EXPLORE COLLECTION
-                  </button>
-                </div>
+                <CategoryCard
+                  category={cat}
+                  onExplore={() => navigate(`/category/${cat.id}`)}
+                />
               </motion.div>
             ))}
           </div>
         </div>
       </main>
 
-      <Footer />
       <LoginPopup isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
     </div>
   );

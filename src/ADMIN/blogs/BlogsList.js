@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Edit, Trash2, Plus, FileText, Calendar, User, Eye, RefreshCw, AlertCircle } from 'lucide-react';
+import { Search, Plus, FileText, Calendar, User, Eye, RefreshCw, AlertCircle } from 'lucide-react';
 import '../catalog/adminModule.css';
+import { OutlookDeleteButton, AnimatedEditButton, Pagination } from '../components/ActionButtons';
 
 const API_BASE = 'https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Blog';
 const IMG_BASE = 'https://wildlife-unwieldy-devotee.ngrok-free.dev';
@@ -28,6 +29,8 @@ const BlogsList = () => {
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
   const [deletingId, setDeletingId] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   /* ── Fetch all blogs ── */
   const fetchBlogs = useCallback(async () => {
@@ -66,7 +69,7 @@ const BlogsList = () => {
   };
 
   /* ── Filter ── */
-  const filteredBlogs = blogs.filter((blog) => {
+  const filteredBlogs = useMemo(() => blogs.filter((blog) => {
     const q = searchTerm.toLowerCase();
     return (
       (blog.title      || '').toLowerCase().includes(q) ||
@@ -75,7 +78,14 @@ const BlogsList = () => {
       (blog.summary    || '').toLowerCase().includes(q) ||
       (blog.description|| '').toLowerCase().includes(q)
     );
-  });
+  }), [blogs, searchTerm]);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredBlogs.length / itemsPerPage);
+  const pagedBlogs = filteredBlogs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  // Reset page on search
+  useEffect(() => { setCurrentPage(1); }, [searchTerm]);
 
   const resolveImage = (src) => {
     if (!src) return null;
@@ -156,81 +166,71 @@ const BlogsList = () => {
                   </td>
                 </tr>
               ) : filteredBlogs.length > 0 ? (
-                filteredBlogs.map((blog) => {
+                pagedBlogs.map((blog) => {
                   const imgSrc = resolveImage(blog.coverImage);
                   return (
-                    <tr key={blog.id}>
+                    <tr key={blog.id} style={{ fontSize: '12px' }}>
                       {/* Article column */}
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <td style={{ padding: '5px 8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           {imgSrc ? (
                             <img
                               src={imgSrc}
                               alt={blog.title}
-                              style={{ width: 64, height: 40, objectFit: 'cover', borderRadius: 5, border: '1px solid #e2e8f0', flexShrink: 0 }}
+                              style={{ width: 48, height: 32, objectFit: 'cover', borderRadius: 4, border: '1px solid #e2e8f0', flexShrink: 0 }}
                               onError={(e) => { e.target.style.display = 'none'; }}
                             />
                           ) : (
-                            <div style={{ width: 64, height: 40, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 5, border: '1px solid #e2e8f0', flexShrink: 0 }}>
-                              <FileText size={16} color="#94a3b8" />
+                            <div style={{ width: 48, height: 32, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 4, border: '1px solid #e2e8f0', flexShrink: 0 }}>
+                              <FileText size={13} color="#94a3b8" />
                             </div>
                           )}
                           <div>
-                            <div className="catalog-table__title" style={{ fontWeight: 600, color: '#1e293b', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <div className="catalog-table__title" style={{ fontWeight: 600, color: '#1e293b', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12px' }}>
                               {blog.title || 'Untitled'}
                             </div>
-                            <div className="catalog-table__muted" style={{ fontSize: 11, color: '#94a3b8', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
-                              {blog.summary || (blog.description ? blog.description.slice(0, 80) + '…' : '—')}
+                            <div className="catalog-table__muted" style={{ fontSize: 10, color: '#94a3b8', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
+                              {blog.summary || (blog.description ? blog.description.slice(0, 70) + '…' : '—')}
                             </div>
                           </div>
                         </div>
                       </td>
 
                       {/* Author */}
-                      <td>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#475569', fontSize: 13 }}>
-                          <User size={13} color="#94a3b8" />
+                      <td style={{ padding: '5px 8px' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#475569', fontSize: 11 }}>
+                          <User size={11} color="#94a3b8" />
                           {blog.authorName || 'Admin'}
                         </span>
                       </td>
 
                       {/* Category */}
-                      <td>
-                        <span style={{ fontSize: 11, background: '#f0fdf4', color: '#15803d', padding: '2px 8px', borderRadius: 4, fontWeight: 700, border: '1px solid #bbf7d0' }}>
+                      <td style={{ padding: '5px 8px' }}>
+                        <span style={{ fontSize: 10, background: '#f0fdf4', color: '#15803d', padding: '2px 6px', borderRadius: 4, fontWeight: 700, border: '1px solid #bbf7d0' }}>
                           {blog.category || 'General'}
                         </span>
                       </td>
 
                       {/* Date */}
-                      <td>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#64748b', fontSize: 13 }}>
-                          <Calendar size={13} color="#94a3b8" />
+                      <td style={{ padding: '5px 8px' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#64748b', fontSize: 11 }}>
+                          <Calendar size={11} color="#94a3b8" />
                           {formatDate(blog.publishDate)}
                         </span>
                       </td>
 
                       {/* Actions */}
-                      <td>
+                      <td style={{ padding: '5px 8px' }}>
                         <div className="catalog-inline-actions" style={{ justifyContent: 'center' }}>
-                          <Link
+                          <AnimatedEditButton
                             to={`/admin/blogs/form?id=${blog.id}`}
-                            className="catalog-btn catalog-btn--icon"
                             title="Edit article"
-                          >
-                            <Edit size={15} />
-                          </Link>
-                          <button
-                            type="button"
-                            className="catalog-btn catalog-btn--icon catalog-btn--danger"
+                          />
+                          <OutlookDeleteButton
                             onClick={() => handleDelete(blog.id)}
                             disabled={deletingId === blog.id}
                             title="Delete article"
-                          >
-                            {deletingId === blog.id
-                              ? <RefreshCw size={14} className="spin" />
-                              : <Trash2 size={15} />
-                            }
-                          </button>
+                          />
                         </div>
                       </td>
                     </tr>
@@ -238,7 +238,7 @@ const BlogsList = () => {
                 })
               ) : (
                 <tr>
-                  <td colSpan="5" className="catalog-center-cell" style={{ padding: '48px 0', color: '#94a3b8' }}>
+                  <td colSpan="5" className="catalog-center-cell" style={{ padding: '32px 0', color: '#94a3b8', fontSize: '12px' }}>
                     {searchTerm ? 'No articles match your search.' : 'No blog articles found. Write your first article!'}
                   </td>
                 </tr>
@@ -246,6 +246,14 @@ const BlogsList = () => {
             </tbody>
           </table>
         </div>
+
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={filteredBlogs.length}
+          itemsPerPage={itemsPerPage}
+        />
       </section>
     </div>
   );

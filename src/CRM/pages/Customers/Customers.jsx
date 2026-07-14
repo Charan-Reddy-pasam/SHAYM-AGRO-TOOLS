@@ -13,31 +13,33 @@ import {
 
 import "./Customers.css";
 
-const API_BASE_URL = "https://satin-eastcoast-musky.ngrok-free.dev/api/customer-api";
+const API_BASE_URL = "https://wildlife-unwieldy-devotee.ngrok-free.dev/api";
 const CUSTOMER_API = {
-  list: `${API_BASE_URL}/get-customers`,
-  byId: (id) => `${API_BASE_URL}/get-customer-by-id/${id}`,
-  add: `${API_BASE_URL}/add-customer`,
-  update: (id) => `${API_BASE_URL}/update-customer/${id}`,
-  delete: (id) => `${API_BASE_URL}/delete-customer/${id}`,
+  list: `${API_BASE_URL}/Customers`,
+  byId: (id) => `${API_BASE_URL}/Customers/${id}`,
+  add: `${API_BASE_URL}/Customers`,
+  update: (id) => `${API_BASE_URL}/Customers/${id}`,
+  delete: (id) => `${API_BASE_URL}/Customers/${id}`,
   search: (keyword) =>
-    `${API_BASE_URL}/search?keyword=${encodeURIComponent(keyword)}`,
-  exportTemplate: `${API_BASE_URL}/export-template`,
-  exportFullData: `${API_BASE_URL}/export-full-data`,
-  import: `${API_BASE_URL}/import`,
+    `${API_BASE_URL}/Customers?search=${encodeURIComponent(keyword)}`,
+  exportTemplate: `${API_BASE_URL}/Customers/export-template`,
+  exportFullData: `${API_BASE_URL}/Customers/export-full-data`,
+  import: `${API_BASE_URL}/Customers/import`,
+  advisory: (id) => `${API_BASE_URL}/Customers/${id}/advisory`,
 };
 
 const initialFormData = {
-  customerName: "",
-  mobile: "",
-  area: "",
-  city: "",
+  name: "",
+  phone: "",
+  email: "",
+  address: "",
+  district: "",
   state: "",
-  pincode: "",
-  totalLandArea: "",
-  soilCondition: "",
-  cropsCultivated: "",
   status: "Active",
+  soilType: "Red Sandy",
+  cropType: "",
+  farmSizeAcres: "",
+  irrigationSource: "Drip",
 };
 
 function Customers() {
@@ -48,8 +50,13 @@ function Customers() {
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [isEditMode, setIsEditMode] = useState(false);
 
-  // New state to view full customer details in a popup
+  // View customer details modal state
   const [viewingCustomer, setViewingCustomer] = useState(null);
+
+  // Advisory Log Form state
+  const [advisoryText, setAdvisoryText] = useState("");
+  const [recommendation, setRecommendation] = useState("");
+  const [submittingAdvisory, setSubmittingAdvisory] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -79,45 +86,39 @@ function Customers() {
 
   const normalizeCustomer = (customer) => {
     return {
-      customerId: customer.id || customer.Id || customer.customerId || customer.CustomerId || "",
-      customerName: customer.customerName || customer.CustomerName || "",
-      mobile: customer.mobileNumber || customer.MobileNumber || customer.mobile || customer.Mobile || "",
-      email: customer.email || customer.emailId || customer.Email || customer.EmailId || "",
-      address:
-        customer.address ||
-        customer.Address ||
-        [customer.area || customer.Area, customer.city || customer.City, customer.state || customer.State, customer.pincode || customer.Pincode]
-          .filter(Boolean)
-          .join(", ") ||
-        "",
-      area: customer.area || customer.Area || "",
-      city: customer.city || customer.City || "",
-      state: customer.state || customer.State || "",
-      pincode: customer.pincode || customer.Pincode || "",
-      totalLandArea: customer.totalLandArea || customer.TotalLandArea || "",
-      soilCondition: customer.soilCondition || customer.SoilCondition || "",
-      cropsCultivated:
-        customer.cropsCultivated || customer.CropsCultivated || "",
-      status: customer.status || customer.Status || "Active",
+      id: customer.id || 0,
+      name: customer.name || "",
+      phone: customer.phone || "",
+      email: customer.email || "",
+      address: customer.address || "",
+      district: customer.district || "",
+      state: customer.state || "",
+      status: customer.status || "Active",
+      soilType: customer.agrarianProfile?.soilType || "",
+      cropType: customer.agrarianProfile?.cropType || "",
+      farmSizeAcres: customer.agrarianProfile?.farmSizeAcres !== undefined ? String(customer.agrarianProfile.farmSizeAcres) : "",
+      irrigationSource: customer.agrarianProfile?.irrigationSource || "",
+      advisories: customer.advisories || [],
+      orders: customer.orders || [],
     };
   };
 
   const convertToApiCustomer = (customer) => {
     return {
-      id: Number(customer.customerId) || 0,
-      customerName: customer.customerName,
-      mobileNumber: customer.mobile,
+      id: Number(customer.id) || 0,
+      name: customer.name,
+      phone: customer.phone,
       email: customer.email || "",
-      area: customer.area,
-      city: customer.city,
-      state: customer.state,
-      pincode: customer.pincode,
-      totalLandArea: customer.totalLandArea
-        ? parseFloat(customer.totalLandArea)
-        : 0,
-      soilCondition: customer.soilCondition,
-      cropsCultivated: customer.cropsCultivated,
-      status: customer.status,
+      address: customer.address || "",
+      district: customer.district || "",
+      state: customer.state || "",
+      status: customer.status || "Active",
+      agrarianProfile: {
+        soilType: customer.soilType || "",
+        cropType: customer.cropType || "",
+        farmSizeAcres: customer.farmSizeAcres ? parseFloat(customer.farmSizeAcres) : 0,
+        irrigationSource: customer.irrigationSource || "Drip",
+      },
     };
   };
 
@@ -264,17 +265,18 @@ function Customers() {
   useEffect(() => {
     if (isEditMode && editingCustomer) {
       setFormData({
-        customerId: editingCustomer.customerId,
-        customerName: editingCustomer.customerName,
-        mobile: editingCustomer.mobile,
-        area: editingCustomer.area,
-        city: editingCustomer.city,
+        id: editingCustomer.id,
+        name: editingCustomer.name,
+        phone: editingCustomer.phone,
+        email: editingCustomer.email,
+        address: editingCustomer.address,
+        district: editingCustomer.district,
         state: editingCustomer.state,
-        pincode: editingCustomer.pincode,
-        totalLandArea: editingCustomer.totalLandArea,
-        soilCondition: editingCustomer.soilCondition,
-        cropsCultivated: editingCustomer.cropsCultivated,
         status: editingCustomer.status,
+        soilType: editingCustomer.soilType || "Red Sandy",
+        cropType: editingCustomer.cropType,
+        farmSizeAcres: editingCustomer.farmSizeAcres,
+        irrigationSource: editingCustomer.irrigationSource || "Drip",
       });
     } else {
       setFormData(initialFormData);
@@ -304,16 +306,14 @@ function Customers() {
           const search = searchTerm.toLowerCase();
 
           return (
-            (customer.customerName || "").toLowerCase().includes(search) ||
-            (customer.mobile || "").toLowerCase().includes(search) ||
+            (customer.name || "").toLowerCase().includes(search) ||
+            (customer.phone || "").toLowerCase().includes(search) ||
             (customer.email || "").toLowerCase().includes(search) ||
             (customer.address || "").toLowerCase().includes(search) ||
-            (customer.area || "").toLowerCase().includes(search) ||
-            (customer.city || "").toLowerCase().includes(search) ||
+            (customer.district || "").toLowerCase().includes(search) ||
             (customer.state || "").toLowerCase().includes(search) ||
-            (customer.pincode || "").toLowerCase().includes(search) ||
-            (customer.soilCondition || "").toLowerCase().includes(search) ||
-            (customer.cropsCultivated || "").toLowerCase().includes(search) ||
+            (customer.soilType || "").toLowerCase().includes(search) ||
+            (customer.cropType || "").toLowerCase().includes(search) ||
             (customer.status || "").toLowerCase().includes(search)
           );
         });
@@ -344,51 +344,94 @@ function Customers() {
 
   // Handler to open full details view popup
   const handleViewCustomer = async (customer) => {
-    const latestCustomer = await fetchCustomerById(customer.customerId);
+    const latestCustomer = await fetchCustomerById(customer.id);
     setViewingCustomer(latestCustomer || customer);
+    setAdvisoryText("");
+    setRecommendation("");
+  };
+
+  const handleAddAdvisory = async (e) => {
+    e.preventDefault();
+    if (!advisoryText.trim() || !recommendation.trim()) {
+      alert("Please enter both advisory text and recommendation.");
+      return;
+    }
+
+    try {
+      setSubmittingAdvisory(true);
+      const response = await fetch(CUSTOMER_API.advisory(viewingCustomer.id), {
+        method: "POST",
+        headers: apiHeaders,
+        body: JSON.stringify({
+          customerId: viewingCustomer.id,
+          advisoryText: advisoryText.trim(),
+          recommendation: recommendation.trim(),
+          staffId: 1, // default staff representation
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to post advisory log");
+      }
+
+      setAdvisoryText("");
+      setRecommendation("");
+
+      // Refresh viewing details
+      const latestCustomer = await fetchCustomerById(viewingCustomer.id);
+      if (latestCustomer) {
+        setViewingCustomer(latestCustomer);
+      }
+      alert("Advisory log added successfully.");
+    } catch (err) {
+      console.error(err);
+      alert("Could not post advisory log. Please try again.");
+    } finally {
+      setSubmittingAdvisory(false);
+    }
   };
 
   const validateForm = () => {
     const newErrors = {};
 
-    if (!formData.customerName.trim()) {
-      newErrors.customerName = "Customer name is required";
+    if (!formData.name.trim()) {
+      newErrors.name = "Customer name is required";
     }
 
-    if (!formData.mobile.trim()) {
-      newErrors.mobile = "Mobile number is required";
-    } else if (!/^[0-9]{10}$/.test(formData.mobile.trim())) {
-      newErrors.mobile = "Enter a valid 10 digit mobile number";
+    if (!formData.phone.trim()) {
+      newErrors.phone = "Mobile number is required";
+    } else if (!/^\+?[0-9]{10,12}$/.test(formData.phone.trim())) {
+      newErrors.phone = "Enter a valid 10-12 digit mobile number";
     }
 
-    if (!formData.area.trim()) {
-      newErrors.area = "Area is required";
+    if (formData.email.trim() && !/\S+@\S+\.\S+/.test(formData.email.trim())) {
+      newErrors.email = "Enter a valid email address";
     }
 
-    if (!formData.city.trim()) {
-      newErrors.city = "City is required";
+    if (!formData.address.trim()) {
+      newErrors.address = "Address/Village is required";
+    }
+
+    if (!formData.district.trim()) {
+      newErrors.district = "District/City is required";
     }
 
     if (!formData.state.trim()) {
       newErrors.state = "State is required";
     }
 
-    if (!formData.pincode.trim()) {
-      newErrors.pincode = "Pincode is required";
-    } else if (!/^[0-9]{6}$/.test(formData.pincode.trim())) {
-      newErrors.pincode = "Enter a valid 6 digit pincode";
+    if (!formData.farmSizeAcres.toString().trim()) {
+      newErrors.farmSizeAcres = "Farm size is required";
+    } else if (isNaN(Number(formData.farmSizeAcres)) || Number(formData.farmSizeAcres) < 0) {
+      newErrors.farmSizeAcres = "Enter a valid positive number";
     }
 
-    if (!formData.totalLandArea.toString().trim()) {
-      newErrors.totalLandArea = "Total land area is required";
+    if (!formData.soilType.trim()) {
+      newErrors.soilType = "Soil type is required";
     }
 
-    if (!formData.soilCondition.trim()) {
-      newErrors.soilCondition = "Soil condition is required";
-    }
-
-    if (!formData.cropsCultivated.trim()) {
-      newErrors.cropsCultivated = "Crops cultivated is required";
+    if (!formData.cropType.trim()) {
+      newErrors.cropType = "Crop type is required";
     }
 
     setErrors(newErrors);
@@ -433,7 +476,9 @@ function Customers() {
   };
 
   const editCustomer = async (customer) => {
-    const latestCustomer = await fetchCustomerById(customer.customerId);
+    // If opening editing view from details popup, close the details popup first
+    setViewingCustomer(null);
+    const latestCustomer = await fetchCustomerById(customer.id);
 
     setEditingCustomer(latestCustomer || customer);
     setIsEditMode(true);
@@ -445,7 +490,7 @@ function Customers() {
     try {
       setApiError("");
 
-      const response = await fetch(CUSTOMER_API.update(updatedCustomer.customerId), {
+      const response = await fetch(CUSTOMER_API.update(updatedCustomer.id), {
         method: "PUT",
         headers: apiHeaders,
         body: JSON.stringify(convertToApiCustomer(updatedCustomer)),
@@ -554,7 +599,7 @@ function Customers() {
         <div className="table-toolbar">
           <input
             type="text"
-            placeholder="Search by name, phone, email or address..."
+            placeholder="Search by name, phone, email, state, or crop..."
             className="search-input"
             value={searchTerm}
             onChange={(e) => {
@@ -604,11 +649,12 @@ function Customers() {
             <thead>
               <tr>
                 <th>ID</th>
-                <th>Customer ID</th>
+                <th>Database ID</th>
                 <th>Customer Name</th>
                 <th>Phone No.</th>
                 <th>Email ID</th>
                 <th>Address</th>
+                <th>Crop Type</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -616,22 +662,25 @@ function Customers() {
             <tbody>
               {currentCustomers.length > 0 ? (
                 currentCustomers.map((customer, index) => (
-                  <tr key={customer.customerId || index}>
+                  <tr key={customer.id || index}>
                     <td>{indexOfFirst + index + 1}</td>
-                    <td>{customer.customerId || "—"}</td>
+                    <td>{customer.id || "—"}</td>
                     <td title="Click to view details">
                       <button
                         type="button"
                         className="customer-name-link-btn"
                         onClick={() => handleViewCustomer(customer)}
                       >
-                        {customer.customerName || "Unknown Customer"}
+                        {customer.name || "Unknown Customer"}
                       </button>
                     </td>
-                    <td>{customer.mobile || "—"}</td>
+                    <td>{customer.phone || "—"}</td>
                     <td>{customer.email || "—"}</td>
-                    <td title={customer.address || [customer.area, customer.city, customer.state, customer.pincode].filter(Boolean).join(", ")}>
-                      {customer.address || [customer.area, customer.city, customer.state, customer.pincode].filter(Boolean).join(", ") || "—"}
+                    <td>
+                      {[customer.address, customer.district, customer.state].filter(Boolean).join(", ") || "—"}
+                    </td>
+                    <td>
+                      <span className="crop-badge">{customer.cropType || "—"}</span>
                     </td>
 
                     <td>
@@ -653,7 +702,7 @@ function Customers() {
                         <button
                           className="customer-action-btn delete"
                           title="Delete"
-                          onClick={() => deleteCustomer(customer.customerId)}
+                          onClick={() => deleteCustomer(customer.id)}
                         >
                           <FiTrash2 />
                         </button>
@@ -663,7 +712,7 @@ function Customers() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan="6" className="empty-table-message">
+                  <td colSpan="8" className="empty-table-message">
                     No customers found
                   </td>
                 </tr>
@@ -705,53 +754,130 @@ function Customers() {
             <div className="modal-header">
               <div>
                 <p className="eyebrow">Customer profile</p>
-                <h2>{viewingCustomer.customerName || "Customer Details"}</h2>
-                <p className="subtle-text">A clean view of the customer record, contact details, and farm information.</p>
+                <h2>{viewingCustomer.name || "Customer Details"}</h2>
+                <p className="subtle-text">A clean view of the customer record, contact details, and agrarian advisory history.</p>
               </div>
               <button className="close-btn" onClick={() => setViewingCustomer(null)}>&times;</button>
             </div>
 
-            <div className="customer-detail-grid">
-              <section className="customer-detail-card highlight-card">
-                <div className="profile-chip"><FiUser /> Customer overview</div>
-                <div className="detail-stat-row">
-                  <span>Customer ID</span>
-                  <strong>{viewingCustomer.customerId || "—"}</strong>
-                </div>
-                <div className="detail-stat-row">
-                  <span>Status</span>
-                  <strong className={`status-badge ${String(viewingCustomer.status || "Active").toLowerCase()}`}>{viewingCustomer.status || "Active"}</strong>
-                </div>
-                <div className="detail-stat-row">
-                  <span>Phone</span>
-                  <strong>{viewingCustomer.mobile || "—"}</strong>
-                </div>
-                <div className="detail-stat-row">
-                  <span>Email</span>
-                  <strong>{viewingCustomer.email || "—"}</strong>
-                </div>
-              </section>
+            <div className="customer-modal-split-layout">
+              {/* Left Column: Customer details */}
+              <div className="customer-details-pane">
+                <section className="customer-detail-card highlight-card">
+                  <div className="profile-chip"><FiUser /> Customer overview</div>
+                  <div className="detail-stat-row">
+                    <span>Database ID</span>
+                    <strong>{viewingCustomer.id || "—"}</strong>
+                  </div>
+                  <div className="detail-stat-row">
+                    <span>Status</span>
+                    <strong className={`status-badge ${String(viewingCustomer.status || "Active").toLowerCase()}`}>{viewingCustomer.status || "Active"}</strong>
+                  </div>
+                  <div className="detail-stat-row">
+                    <span>Phone</span>
+                    <strong>{viewingCustomer.phone || "—"}</strong>
+                  </div>
+                  <div className="detail-stat-row">
+                    <span>Email</span>
+                    <strong>{viewingCustomer.email || "—"}</strong>
+                  </div>
+                </section>
 
-              <section className="customer-detail-card">
-                <div className="profile-chip"><FiMapPin /> Address & contact</div>
-                <p className="detail-note">{viewingCustomer.address || [viewingCustomer.area, viewingCustomer.city, viewingCustomer.state, viewingCustomer.pincode].filter(Boolean).join(", ") || "No address available"}</p>
-                <div className="detail-grid-2 compact-grid">
-                  <div><label>Area</label><p>{viewingCustomer.area || "—"}</p></div>
-                  <div><label>City / State</label><p>{[viewingCustomer.city, viewingCustomer.state].filter(Boolean).join(" / ") || "—"}</p></div>
-                  <div><label>Pincode</label><p>{viewingCustomer.pincode || "—"}</p></div>
-                  <div><label>Primary Contact</label><p>{viewingCustomer.mobile || "—"}</p></div>
-                </div>
-              </section>
+                <section className="customer-detail-card">
+                  <div className="profile-chip"><FiMapPin /> Address & location</div>
+                  <p className="detail-note">{[viewingCustomer.address, viewingCustomer.district, viewingCustomer.state].filter(Boolean).join(", ") || "No address available"}</p>
+                  <div className="detail-grid-2 compact-grid">
+                    <div><label>Village/Street</label><p>{viewingCustomer.address || "—"}</p></div>
+                    <div><label>District</label><p>{viewingCustomer.district || "—"}</p></div>
+                    <div><label>State</label><p>{viewingCustomer.state || "—"}</p></div>
+                    <div><label>Primary Contact</label><p>{viewingCustomer.phone || "—"}</p></div>
+                  </div>
+                </section>
 
-              <section className="customer-detail-card full-span-card">
-                <div className="profile-chip"><FiPhone /> Farm details</div>
-                <div className="detail-grid-2 compact-grid">
-                  <div><label>Total Land Area</label><p>{viewingCustomer.totalLandArea || "—"}</p></div>
-                  <div><label>Soil Condition</label><p>{viewingCustomer.soilCondition || "—"}</p></div>
-                  <div><label>Crops Cultivated</label><p>{viewingCustomer.cropsCultivated || "—"}</p></div>
-                  <div><label>Customer Email</label><p>{viewingCustomer.email || "—"}</p></div>
+                <section className="customer-detail-card">
+                  <div className="profile-chip"><FiPhone /> Agrarian Profile</div>
+                  <div className="detail-grid-2 compact-grid">
+                    <div><label>Total Land Area</label><p>{viewingCustomer.farmSizeAcres ? `${viewingCustomer.farmSizeAcres} Acres` : "—"}</p></div>
+                    <div><label>Soil Type</label><p>{viewingCustomer.soilType || "—"}</p></div>
+                    <div><label>Crop Type</label><p>{viewingCustomer.cropType || "—"}</p></div>
+                    <div><label>Irrigation Source</label><p>{viewingCustomer.irrigationSource || "—"}</p></div>
+                  </div>
+                </section>
+              </div>
+
+              {/* Right Column: Advisories */}
+              <div className="customer-advisories-pane">
+                <div className="advisories-header">
+                  <h3>Agrarian Advisories</h3>
+                  <span className="advisory-count-badge">{(viewingCustomer.advisories || []).length} Logs</span>
                 </div>
-              </section>
+
+                <div className="advisory-history-list">
+                  {viewingCustomer.advisories && viewingCustomer.advisories.length > 0 ? (
+                    viewingCustomer.advisories.map((advisory) => (
+                      <div key={advisory.id} className="advisory-log-card">
+                        <div className="advisory-card-header">
+                          <span className="advisory-card-date">
+                            {new Date(advisory.dateCreated).toLocaleString("en-IN", {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                          <span className="staff-badge">Staff #{advisory.staffId}</span>
+                        </div>
+                        <div className="advisory-card-body">
+                          <div className="advisory-field">
+                            <label>Observation/Notes:</label>
+                            <p>{advisory.advisoryText || "—"}</p>
+                          </div>
+                          <div className="advisory-field recommendation">
+                            <label>Recommendation:</label>
+                            <p>{advisory.recommendation || "—"}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="empty-advisories">
+                      <p>No agronomy advice has been logged for this customer yet.</p>
+                    </div>
+                  )}
+                </div>
+
+                <form className="add-advisory-form" onSubmit={handleAddAdvisory}>
+                  <h4>Log New Advisory</h4>
+                  <div className="advisory-form-group">
+                    <label>Observation / Crop Condition</label>
+                    <textarea
+                      placeholder="Describe what you observed (e.g. leaf chlorosis, pest infestation, moisture levels)..."
+                      value={advisoryText}
+                      onChange={(e) => setAdvisoryText(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="advisory-form-group">
+                    <label>Recommendation / Treatment</label>
+                    <textarea
+                      placeholder="Specify actions, fertilizer dosage, or treatments recommended..."
+                      value={recommendation}
+                      onChange={(e) => setRecommendation(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="submit-advisory-btn"
+                    disabled={submittingAdvisory}
+                  >
+                    {submittingAdvisory ? "Logging..." : "Log Advisory Entry"}
+                  </button>
+                </form>
+              </div>
             </div>
 
             <div className="modal-actions">
@@ -767,8 +893,7 @@ function Customers() {
         <div className="modal-overlay">
           <div className="modal-container customer-modal-wide">
             <div className="modal-header">
-              <h2>{isEditMode ? "Edit Customer" : "Add Customer"}</h2>
-
+              <h2>{isEditMode ? "Edit Customer Details" : "Add New Customer"}</h2>
               <button className="close-btn" onClick={closeModal}>
                 &times;
               </button>
@@ -780,14 +905,14 @@ function Customers() {
                   <label>Customer Name</label>
                   <input
                     type="text"
-                    name="customerName"
-                    placeholder="Enter customer name"
-                    value={formData.customerName}
+                    name="name"
+                    placeholder="Enter customer full name"
+                    value={formData.name}
                     onChange={handleChange}
-                    className={errors.customerName ? "error-input" : ""}
+                    className={errors.name ? "error-input" : ""}
                   />
-                  {errors.customerName && (
-                    <p className="error-text">{errors.customerName}</p>
+                  {errors.name && (
+                    <p className="error-text">{errors.name}</p>
                   )}
                 </div>
 
@@ -795,113 +920,29 @@ function Customers() {
                   <label>Mobile Number</label>
                   <input
                     type="text"
-                    name="mobile"
-                    placeholder="Enter mobile number"
-                    value={formData.mobile}
+                    name="phone"
+                    placeholder="Enter 10-12 digit mobile number"
+                    value={formData.phone}
                     onChange={handleChange}
-                    className={errors.mobile ? "error-input" : ""}
+                    className={errors.phone ? "error-input" : ""}
                   />
-                  {errors.mobile && (
-                    <p className="error-text">{errors.mobile}</p>
+                  {errors.phone && (
+                    <p className="error-text">{errors.phone}</p>
                   )}
                 </div>
 
                 <div className="form-group">
-                  <label>Area</label>
+                  <label>Email ID (Optional)</label>
                   <input
-                    type="text"
-                    name="area"
-                    placeholder="Enter area"
-                    value={formData.area}
+                    type="email"
+                    name="email"
+                    placeholder="customer@domain.com"
+                    value={formData.email}
                     onChange={handleChange}
-                    className={errors.area ? "error-input" : ""}
+                    className={errors.email ? "error-input" : ""}
                   />
-                  {errors.area && <p className="error-text">{errors.area}</p>}
-                </div>
-
-                <div className="form-group">
-                  <label>City</label>
-                  <input
-                    type="text"
-                    name="city"
-                    placeholder="Enter city"
-                    value={formData.city}
-                    onChange={handleChange}
-                    className={errors.city ? "error-input" : ""}
-                  />
-                  {errors.city && <p className="error-text">{errors.city}</p>}
-                </div>
-
-                <div className="form-group">
-                  <label>State</label>
-                  <input
-                    type="text"
-                    name="state"
-                    placeholder="Enter state"
-                    value={formData.state}
-                    onChange={handleChange}
-                    className={errors.state ? "error-input" : ""}
-                  />
-                  {errors.state && <p className="error-text">{errors.state}</p>}
-                </div>
-
-                <div className="form-group">
-                  <label>Pincode</label>
-                  <input
-                    type="text"
-                    name="pincode"
-                    placeholder="Enter pincode"
-                    value={formData.pincode}
-                    onChange={handleChange}
-                    className={errors.pincode ? "error-input" : ""}
-                  />
-                  {errors.pincode && (
-                    <p className="error-text">{errors.pincode}</p>
-                  )}
-                </div>
-
-                <div className="form-group">
-                  <label>Total Land Area</label>
-                  <input
-                    type="number"
-                    name="totalLandArea"
-                    placeholder="Enter total land area"
-                    value={formData.totalLandArea}
-                    onChange={handleChange}
-                    className={errors.totalLandArea ? "error-input" : ""}
-                  />
-                  {errors.totalLandArea && (
-                    <p className="error-text">{errors.totalLandArea}</p>
-                  )}
-                </div>
-
-                <div className="form-group">
-                  <label>Soil Condition</label>
-                  <input
-                    type="text"
-                    name="soilCondition"
-                    placeholder="Enter soil condition"
-                    value={formData.soilCondition}
-                    onChange={handleChange}
-                    className={errors.soilCondition ? "error-input" : ""}
-                  />
-                  {errors.soilCondition && (
-                    <p className="error-text">{errors.soilCondition}</p>
-                  )}
-                </div>
-
-                <div className="form-group">
-                  <label>Crops Cultivated</label>
-                  <input
-                    type="text"
-                    name="cropsCultivated"
-                    placeholder="Enter crops cultivated"
-                    value={formData.cropsCultivated}
-                    onChange={handleChange}
-                    className={errors.cropsCultivated ? "error-input" : ""}
-                  />
-                  {errors.cropsCultivated && (
-                    <p className="error-text">{errors.cropsCultivated}</p>
+                  {errors.email && (
+                    <p className="error-text">{errors.email}</p>
                   )}
                 </div>
 
@@ -915,6 +956,108 @@ function Customers() {
                     <option value="Active">Active</option>
                     <option value="Pending">Pending</option>
                     <option value="Inactive">Inactive</option>
+                  </select>
+                </div>
+
+                <div className="form-group full-span-form-group">
+                  <label>Address / Village</label>
+                  <input
+                    type="text"
+                    name="address"
+                    placeholder="House number, street, village details"
+                    value={formData.address}
+                    onChange={handleChange}
+                    className={errors.address ? "error-input" : ""}
+                  />
+                  {errors.address && <p className="error-text">{errors.address}</p>}
+                </div>
+
+                <div className="form-group">
+                  <label>District / City</label>
+                  <input
+                    type="text"
+                    name="district"
+                    placeholder="Enter district or city"
+                    value={formData.district}
+                    onChange={handleChange}
+                    className={errors.district ? "error-input" : ""}
+                  />
+                  {errors.district && <p className="error-text">{errors.district}</p>}
+                </div>
+
+                <div className="form-group">
+                  <label>State</label>
+                  <input
+                    type="text"
+                    name="state"
+                    placeholder="Enter state name"
+                    value={formData.state}
+                    onChange={handleChange}
+                    className={errors.state ? "error-input" : ""}
+                  />
+                  {errors.state && <p className="error-text">{errors.state}</p>}
+                </div>
+
+                <div className="form-group">
+                  <label>Total Land Area (Acres)</label>
+                  <input
+                    type="number"
+                    name="farmSizeAcres"
+                    placeholder="Enter farm size in acres"
+                    value={formData.farmSizeAcres}
+                    onChange={handleChange}
+                    className={errors.farmSizeAcres ? "error-input" : ""}
+                  />
+                  {errors.farmSizeAcres && (
+                    <p className="error-text">{errors.farmSizeAcres}</p>
+                  )}
+                </div>
+
+                <div className="form-group">
+                  <label>Soil Type</label>
+                  <select
+                    name="soilType"
+                    value={formData.soilType}
+                    onChange={handleChange}
+                  >
+                    <option value="Red Sandy">Red Sandy</option>
+                    <option value="Black Clayey">Black Clayey</option>
+                    <option value="Alluvial">Alluvial</option>
+                    <option value="Loamy">Loamy</option>
+                    <option value="Laterite">Laterite</option>
+                  </select>
+                  {errors.soilType && (
+                    <p className="error-text">{errors.soilType}</p>
+                  )}
+                </div>
+
+                <div className="form-group">
+                  <label>Crops Cultivated</label>
+                  <input
+                    type="text"
+                    name="cropType"
+                    placeholder="E.g., Wheat, Cotton, Paddy"
+                    value={formData.cropType}
+                    onChange={handleChange}
+                    className={errors.cropType ? "error-input" : ""}
+                  />
+                  {errors.cropType && (
+                    <p className="error-text">{errors.cropType}</p>
+                  )}
+                </div>
+
+                <div className="form-group">
+                  <label>Irrigation Source</label>
+                  <select
+                    name="irrigationSource"
+                    value={formData.irrigationSource}
+                    onChange={handleChange}
+                  >
+                    <option value="Drip">Drip Irrigation</option>
+                    <option value="Sprinkler">Sprinkler Irrigation</option>
+                    <option value="Borewell">Borewell / Tube Well</option>
+                    <option value="Rainfed">Rainfed</option>
+                    <option value="Canal">Canal</option>
                   </select>
                 </div>
               </div>

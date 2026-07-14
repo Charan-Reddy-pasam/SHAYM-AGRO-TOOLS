@@ -18,6 +18,8 @@ import {
   getSubcategoryName,
 } from './catalogStore';
 import { fetchCategories, fetchSubcategories, fetchProduct, saveProduct as saveProductApi } from './productsApi';
+import { fetchSuppliers } from '../suppliers/suppliersApi';
+import { Toast } from '../components/Toast';
 import './adminModule.css';
 import './ProductsForm.css';
 
@@ -33,7 +35,7 @@ const createEmptyProduct = () => ({
   id: '',
   name: '',
   sku: '',
-  brand: 'Shyam Agro Tools',
+  brand: '',
   supplier: '',
   categoryId: '',
   subcategoryId: '',
@@ -58,7 +60,7 @@ const createEmptyProduct = () => ({
     material: '',
     coverage: '',
   },
-  keyFeatures: ['', '', '', ''],
+  keyFeatures: [''],
   rating: '',
   totalReviews: '',
   ratingBreakdown: {
@@ -115,7 +117,7 @@ const normalizeProduct = (product) => {
     shortDescription: product.shortDescription || product.shortDesc || product.description || '',
     productDetails: product.productDetails || product.longDesc || product.description || '',
     specifications,
-    keyFeatures: normalizeList(product.keyFeatures || product.features, 4),
+    keyFeatures: normalizeList(product.keyFeatures || product.features, 1),
     ratingBreakdown: {
       ...emptyProduct.ratingBreakdown,
       ...(product.ratingBreakdown || {}),
@@ -156,6 +158,8 @@ const ProductsForm = () => {
 
   const [categories, setCategories] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
+  const [brandsList, setBrandsList] = useState([]);
+  const [suppliersList, setSuppliersList] = useState([]);
   const [isLoadingTaxonomy, setIsLoadingTaxonomy] = useState(true);
 
   const [formData, setFormData] = useState({
@@ -168,7 +172,7 @@ const ProductsForm = () => {
   const [isSaved, setIsSaved] = useState(false);
   const [isLoadingProduct, setIsLoadingProduct] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [toast, setToast] = useState(null);
   const [showImagePreview, setShowImagePreview] = useState(false);
   const isEditing = Boolean(productId);
 
@@ -181,13 +185,25 @@ const ProductsForm = () => {
 
   useEffect(() => {
     let isMounted = true;
-    Promise.all([fetchCategories(), fetchSubcategories()]).then(([cats, subcats]) => {
+    Promise.all([
+      fetchCategories(),
+      fetchSubcategories(),
+      fetch('https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Brand', {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      }).then(res => res.json()).catch(() => []),
+      fetchSuppliers().catch(() => [])
+    ]).then(([cats, subcats, brands, suppliers]) => {
       if (!isMounted) return;
       setCategories(cats);
       setSubcategories(subcats);
+      setBrandsList(Array.isArray(brands) ? brands : []);
+      setSuppliersList(Array.isArray(suppliers) ? suppliers : []);
       setFormData((current) => ({
         ...current,
-        categoryId: current.categoryId || cats[0]?.id || '',
+        categoryId: current.categoryId || '',
+        subcategoryId: current.subcategoryId || '',
+        brand: current.brand || '',
+        supplier: current.supplier || '',
       }));
       setIsLoadingTaxonomy(false);
     }).catch(() => {
@@ -221,7 +237,7 @@ const ProductsForm = () => {
 
     let isMounted = true;
     setIsLoadingProduct(true);
-    setErrorMessage('');
+    setToast(null);
 
     fetchProduct(productId, categories, subcategories)
       .then((product) => {
@@ -230,7 +246,7 @@ const ProductsForm = () => {
       })
       .catch((error) => {
         if (!isMounted) return;
-        setErrorMessage(error.response?.data?.message || error.message || 'Unable to load product details.');
+        setToast({ message: error.response?.data?.message || error.message || 'Unable to load product details.', type: 'error' });
       })
       .finally(() => {
         if (isMounted) setIsLoadingProduct(false);
@@ -242,16 +258,22 @@ const ProductsForm = () => {
   }, [categories, productId, subcategories]);
 
   useEffect(() => {
-    if (!formData.categoryId) return;
+    if (!formData.categoryId) {
+      setFormData((current) => {
+        if (current.subcategoryId === '') return current;
+        return { ...current, subcategoryId: '' };
+      });
+      return;
+    }
     const hasSelectedSubcategory = availableSubcategories.some(
-      (subcategory) => subcategory.id === formData.subcategoryId
+      (subcategory) => String(subcategory.id) === String(formData.subcategoryId)
     );
 
     if (!hasSelectedSubcategory) {
-      setFormData((current) => ({
-        ...current,
-        subcategoryId: availableSubcategories[0]?.id || '',
-      }));
+      setFormData((current) => {
+        if (current.subcategoryId === '') return current;
+        return { ...current, subcategoryId: '' };
+      });
     }
   }, [availableSubcategories, formData.categoryId, formData.subcategoryId]);
 
@@ -330,25 +352,72 @@ const ProductsForm = () => {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
     
-    // Check file sizes (max 25MB total to be safe)
     const validFiles = files.filter(f => f.size <= 25 * 1024 * 1024);
     if (validFiles.length < files.length) {
       alert("Some images were too large. Please select images under 25MB.");
     }
     if (!validFiles.length) return;
 
-    const newFiles = validFiles.slice(0, 7); // enforce max 7
-    setImageFiles(newFiles);
-    // generate previews
-    const readers = newFiles.map((file) => {
-      return new Promise((resolve) => {
+    const currentExistingCount = formData.images?.length || 0;
+    const currentNewCount = imageFiles.length;
+    const allowedNewCount = 7 - (currentExistingCount + currentNewCount);
+
+    if (allowedNewCount <= 0) {
+      alert("Maximum limit of 7 images has already been reached.");
+      return;
+    }
+
+    const addedFiles = validFiles.slice(0, allowedNewCount);
+    const updatedNewFiles = [...imageFiles, ...addedFiles];
+    setImageFiles(updatedNewFiles);
+
+    // Update main preview image:
+    if (!formData.image && updatedNewFiles.length > 0) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData((current) => ({ ...current, image: reader.result }));
+      };
+      reader.readAsDataURL(updatedNewFiles[0]);
+    }
+  };
+
+  const handleRemoveExistingImage = (indexToRemove) => {
+    setFormData((current) => {
+      const updatedImages = (current.images || []).filter((_, idx) => idx !== indexToRemove);
+      let nextMainImage = current.image;
+      if (current.image === current.images[indexToRemove]) {
+        nextMainImage = updatedImages[0] || '';
+      }
+      if (!nextMainImage && imageFiles.length > 0) {
         const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.readAsDataURL(file);
-      });
+        reader.onloadend = () => {
+          setFormData(prev => ({ ...prev, image: reader.result }));
+        };
+        reader.readAsDataURL(imageFiles[0]);
+      }
+      return {
+        ...current,
+        images: updatedImages,
+        image: nextMainImage
+      };
     });
-    Promise.all(readers).then((results) => {
-      setFormData((current) => ({ ...current, image: results[0] })); // keep first as main image preview
+  };
+
+  const handleRemoveNewImage = (indexToRemove) => {
+    setImageFiles((prev) => {
+      const updated = prev.filter((_, idx) => idx !== indexToRemove);
+      if (indexToRemove === 0 && (!formData.images || formData.images.length === 0)) {
+        if (updated.length > 0) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            setFormData(current => ({ ...current, image: reader.result }));
+          };
+          reader.readAsDataURL(updated[0]);
+        } else {
+          setFormData(current => ({ ...current, image: '' }));
+        }
+      }
+      return updated;
     });
   };
 
@@ -365,13 +434,67 @@ const ProductsForm = () => {
     setFormData((current) => ({ ...current, videoPreview: URL.createObjectURL(file) }));
   };
 
-  const saveProduct = async () => {
-    if (!isEditing && imageFiles.length < 4) {
-      setErrorMessage('Minimum 4 images and maximum 7 images are required.');
-      return null;
+  const validateForm = () => {
+    if (!formData.categoryId) {
+      setToast({ message: 'Category is required. Please select a category.', type: 'warning' });
+      return false;
     }
-    if (imageFiles.length > 7) {
-      setErrorMessage('Maximum 7 images are allowed.');
+    if (!formData.subcategoryId) {
+      setToast({ message: 'Subcategory is required. Please select a subcategory.', type: 'warning' });
+      return false;
+    }
+    if (!formData.name || !formData.name.trim()) {
+      setToast({ message: 'Product Name is required.', type: 'warning' });
+      return false;
+    }
+    if (!formData.sku || !formData.sku.trim()) {
+      setToast({ message: 'SKU / Item Code is required.', type: 'warning' });
+      return false;
+    }
+    if (!formData.brand) {
+      setToast({ message: 'Brand is required. Please select a brand.', type: 'warning' });
+      return false;
+    }
+    if (!formData.supplier) {
+      setToast({ message: 'Manufacturer / Supplier is required. Please select a supplier.', type: 'warning' });
+      return false;
+    }
+    if (!formData.shortDescription || !formData.shortDescription.trim()) {
+      setToast({ message: 'Short Description is required.', type: 'warning' });
+      return false;
+    }
+    if (!formData.productDetails || !formData.productDetails.trim()) {
+      setToast({ message: 'Product Details is required.', type: 'warning' });
+      return false;
+    }
+
+    const mrpValue = Number(formData.mrp);
+    if (isNaN(mrpValue) || mrpValue <= 0) {
+      setToast({ message: 'MRP / Base Price must be a positive number greater than 0.', type: 'warning' });
+      return false;
+    }
+
+    const stockValue = Number(formData.stock);
+    if (isNaN(stockValue) || stockValue < 0) {
+      setToast({ message: 'Stock must be a non-negative number.', type: 'warning' });
+      return false;
+    }
+
+    const totalImagesCount = (formData.images?.length || 0) + imageFiles.length;
+    if (totalImagesCount < 4) {
+      setToast({ message: 'Minimum 4 images are required.', type: 'warning' });
+      return false;
+    }
+    if (totalImagesCount > 7) {
+      setToast({ message: 'Maximum 7 images are allowed.', type: 'warning' });
+      return false;
+    }
+
+    return true;
+  };
+
+  const saveProduct = async () => {
+    if (!validateForm()) {
       return null;
     }
 
@@ -395,7 +518,7 @@ const ProductsForm = () => {
     };
 
     setIsSaving(true);
-    setErrorMessage('');
+    setToast(null);
 
     try {
       const savedProduct = await saveProductApi(preparedProduct, imageFiles, videoFile);
@@ -404,7 +527,11 @@ const ProductsForm = () => {
       setImageFiles([]);
       setVideoFile(null);
       setIsSaved(true);
-      setTimeout(() => setIsSaved(false), 2200);
+      setToast({ message: `Product ${isEditing ? 'updated' : 'saved'} successfully!`, type: 'success' });
+      setTimeout(() => {
+        setIsSaved(false);
+        navigate('/admin/catalog/products');
+      }, 1500);
       return savedProduct;
     } catch (error) {
       console.error("API Error Response:", error.response?.data);
@@ -415,7 +542,7 @@ const ProductsForm = () => {
            if (errList) msg = errList;
         }
       }
-      setErrorMessage(msg);
+      setToast({ message: msg, type: 'error' });
       return null;
     } finally {
       setIsSaving(false);
@@ -503,91 +630,19 @@ const ProductsForm = () => {
       <form className="catalog-form" onSubmit={handleSubmit}>
         <div className="catalog-side-grid product-form-layout">
           <div className="catalog-stack">
-            <section className="catalog-card">
-              <div className="catalog-card__header">
-                <div>
-                  <h2>Product Details</h2>
-                  <p className="catalog-card__subtitle">
-                    Current path: {getCategoryName(categories, formData.categoryId)} / {getSubcategoryName(subcategories, formData.subcategoryId)}
-                  </p>
-                </div>
-                {isSaved && (
-                  <span className="catalog-alert">
-                    <CheckCircle size={16} /> Product saved
-                  </span>
-                )}
-                {errorMessage && (
-                  <span className="catalog-alert catalog-alert--warning">
-                    {errorMessage}
-                  </span>
-                )}
-              </div>
-
-              <div className="catalog-form-grid">
+            <section className="catalog-card" style={{ padding: '20px' }}>
+              <div className="catalog-form-grid" style={{ gap: '12px' }}>
                 <div className="catalog-field">
-                  <label htmlFor="product-name">Product Name</label>
-                  <input
-                    id="product-name"
-                    name="name"
-                    type="text"
-                    value={formData.name}
-                    onChange={handleInputChange}
-                    placeholder="e.g. Drip Pipes"
-                    required
-                  />
-                </div>
-
-                <div className="catalog-field">
-                  <label htmlFor="product-sku">SKU / Item Code</label>
-                  <div className="sku-input-wrap">
-                    <input
-                      id="product-sku"
-                      name="sku"
-                      type="text"
-                      value={formData.sku}
-                      onChange={handleInputChange}
-                      placeholder="AG-DRIP-P8"
-                      required
-                    />
-                    <button className="sku-gen-btn" onClick={generateMockSku} type="button" title="Generate SKU Code">
-                      Generate
-                    </button>
-                  </div>
-                </div>
-
-                <div className="catalog-field">
-                  <label htmlFor="product-brand">Brand</label>
-                  <input
-                    id="product-brand"
-                    name="brand"
-                    type="text"
-                    value={formData.brand}
-                    onChange={handleInputChange}
-                    placeholder="Shyam Agro Tools"
-                  />
-                </div>
-
-                <div className="catalog-field">
-                  <label htmlFor="product-supplier">Manufacturer / Supplier</label>
-                  <input
-                    id="product-supplier"
-                    name="supplier"
-                    type="text"
-                    value={formData.supplier}
-                    onChange={handleInputChange}
-                    placeholder="e.g. Shyam Agro Industries"
-                  />
-                </div>
-
-                <div className="catalog-field">
-                  <label htmlFor="product-category">Category</label>
+                  <label htmlFor="product-category" style={{ fontSize: '12px', fontWeight: '600' }}>Category</label>
                   <select
                     id="product-category"
                     name="categoryId"
                     value={formData.categoryId}
                     onChange={handleInputChange}
+                    style={{ padding: '6px 10px', fontSize: '13px' }}
                     required
                   >
+                    <option value="">Select Category</option>
                     {categories.map((category) => (
                       <option key={category.id} value={category.id}>
                         {category.name}
@@ -597,65 +652,140 @@ const ProductsForm = () => {
                 </div>
 
                 <div className="catalog-field">
-                  <label htmlFor="product-subcategory">Subcategory</label>
+                  <label htmlFor="product-subcategory" style={{ fontSize: '12px', fontWeight: '600' }}>Subcategory</label>
                   <select
                     id="product-subcategory"
                     name="subcategoryId"
                     value={formData.subcategoryId}
                     onChange={handleInputChange}
+                    style={{ padding: '6px 10px', fontSize: '13px' }}
                     required
                   >
+                    <option value="">Select Subcategory</option>
                     {availableSubcategories.map((subcategory) => (
                       <option key={subcategory.id} value={subcategory.id}>
                         {subcategory.name}
                       </option>
                     ))}
                   </select>
-                  {!availableSubcategories.length && (
-                    <small>No subcategories found for this category. Add a subcategory first.</small>
+                  {!availableSubcategories.length && formData.categoryId && (
+                    <small style={{ fontSize: '11px', color: '#ef4444' }}>No subcategories found for this category. Add a subcategory first.</small>
                   )}
+                </div>
+
+                <div className="catalog-field">
+                  <label htmlFor="product-name" style={{ fontSize: '12px', fontWeight: '600' }}>Product Name</label>
+                  <input
+                    id="product-name"
+                    name="name"
+                    type="text"
+                    value={formData.name}
+                    onChange={handleInputChange}
+                    placeholder="e.g. Drip Pipes"
+                    style={{ padding: '6px 10px', fontSize: '13px' }}
+                    required
+                  />
+                </div>
+
+                <div className="catalog-field">
+                  <label htmlFor="product-sku" style={{ fontSize: '12px', fontWeight: '600' }}>SKU / Item Code</label>
+                  <div className="sku-input-wrap">
+                    <input
+                      id="product-sku"
+                      name="sku"
+                      type="text"
+                      value={formData.sku}
+                      onChange={handleInputChange}
+                      placeholder="AG-DRIP-P8"
+                      style={{ padding: '6px 10px', fontSize: '13px' }}
+                      required
+                    />
+                    <button className="sku-gen-btn" onClick={generateMockSku} type="button" title="Generate SKU Code" style={{ padding: '6px 10px', fontSize: '12px' }}>
+                      Generate
+                    </button>
+                  </div>
+                </div>
+
+                <div className="catalog-field">
+                  <label htmlFor="product-brand" style={{ fontSize: '12px', fontWeight: '600' }}>Brand</label>
+                  <select
+                    id="product-brand"
+                    name="brand"
+                    value={formData.brand}
+                    onChange={handleInputChange}
+                    style={{ padding: '6px 10px', fontSize: '13px' }}
+                  >
+                    <option value="">Select Brand</option>
+                    {brandsList.map((brand) => (
+                      <option key={brand.id} value={brand.name}>
+                        {brand.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+                    <Link to="/admin/brands/form" style={{ fontSize: '11px', color: '#2563eb', textDecoration: 'none', fontWeight: '500' }}>+ Add Brand</Link>
+                  </div>
+                </div>
+
+                <div className="catalog-field">
+                  <label htmlFor="product-supplier" style={{ fontSize: '12px', fontWeight: '600' }}>Manufacturer / Supplier</label>
+                  <select
+                    id="product-supplier"
+                    name="supplier"
+                    value={formData.supplier}
+                    onChange={handleInputChange}
+                    style={{ padding: '6px 10px', fontSize: '13px' }}
+                  >
+                    <option value="">Select Supplier</option>
+                    {suppliersList.map((supplier) => (
+                      <option key={supplier.id} value={supplier.name}>
+                        {supplier.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+                    <Link to="/admin/suppliers/add" style={{ fontSize: '11px', color: '#2563eb', textDecoration: 'none', fontWeight: '500' }}>+ Add Supplier</Link>
+                  </div>
                 </div>
               </div>
             </section>
 
-            <section className="catalog-card">
-              <div className="product-section-heading">
-                <h2>Storefront Content</h2>
-                <p>These fields map to the short description and product details sections on the customer page.</p>
-              </div>
-
+            <section className="catalog-card" style={{ padding: '20px' }}>
               <div className="catalog-field">
-                <label htmlFor="product-short-description">Short Description</label>
+                <label htmlFor="product-short-description" style={{ fontSize: '12px', fontWeight: '600' }}>Short Description</label>
                 <textarea
                   id="product-short-description"
                   name="shortDescription"
                   value={formData.shortDescription}
                   onChange={handleInputChange}
                   placeholder="Durable drip irrigation pipe roll for efficient water delivery across crop rows."
+                  style={{ padding: '6px 10px', fontSize: '13px', minHeight: '60px' }}
                   required
                 />
               </div>
 
               <div className="catalog-field">
-                <label htmlFor="product-details">Product Details</label>
+                <label htmlFor="product-details" style={{ fontSize: '12px', fontWeight: '600' }}>Product Details</label>
                 <textarea
                   id="product-details"
                   name="productDetails"
                   value={formData.productDetails}
                   onChange={handleInputChange}
                   placeholder="Built for long runs and consistent water flow, this product helps reduce water waste while improving targeted irrigation."
+                  style={{ padding: '6px 10px', fontSize: '13px', minHeight: '60px' }}
                   required
                 />
               </div>
 
               <div className="catalog-field">
-                <label htmlFor="package-includes">Package Includes</label>
+                <label htmlFor="package-includes" style={{ fontSize: '12px', fontWeight: '600' }}>Package Includes</label>
                 <textarea
                   id="package-includes"
                   name="packageIncludes"
                   value={formData.packageIncludes}
                   onChange={handleInputChange}
                   placeholder="Main unit, fittings, user manual, warranty card"
+                  style={{ padding: '6px 10px', fontSize: '13px', minHeight: '60px' }}
                 />
               </div>
             </section>
@@ -1038,43 +1168,120 @@ const ProductsForm = () => {
 
             <section className="catalog-subpanel">
               <h3>Product Media</h3>
-              <label className="catalog-upload" htmlFor="product-images">
-                <span className="catalog-upload__box" style={{ height: '100px' }}>
-                  {imageFiles.length ? (
-                    <div className="image-preview-grid">
-                      {imageFiles.map((file, idx) => (
-                        <img key={idx} src={URL.createObjectURL(file)} alt="preview" className="image-thumb" />
-                      ))}
-                    </div>
-                  ) : formData.images && formData.images.length ? (
-                    <div className="image-preview-grid">
-                      {formData.images.map((url, idx) => (
-                        <img key={idx} src={url} alt="saved preview" className="image-thumb" />
-                      ))}
-                    </div>
-                  ) : (
-                    <Upload size={24} />
-                  )}
-                </span>
-                <span style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <strong>Upload Images ({imageFiles.length ? `${imageFiles.length}/7` : formData.images && formData.images.length ? `${formData.images.length}/7` : '4‑7'})</strong>
-                    {(imageFiles.length > 0 || (formData.images && formData.images.length > 0)) && (
-                      <button
-                        type="button"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex' }}
-                        onClick={(e) => { e.preventDefault(); setShowImagePreview(true); }}
-                        title="Preview Images"
-                      >
-                        <Eye size={16} />
-                      </button>
-                    )}
+              
+              {/* Display existing and new images in a unified grid */}
+              {((formData.images && formData.images.length > 0) || imageFiles.length > 0) && (
+                <div className="product-media-preview-container" style={{ marginBottom: '14px' }}>
+                  <div className="product-media-preview-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(65px, 1fr))', gap: '8px', marginBottom: '8px' }}>
+                    
+                    {/* Render saved existing images */}
+                    {formData.images && formData.images.map((url, idx) => (
+                      <div key={`existing-${idx}`} className="product-media-thumb-wrap" style={{ position: 'relative', width: '65px', height: '65px', border: '1px solid #cbd5e1', borderRadius: '8px', overflow: 'hidden' }}>
+                        <img src={url} alt="saved preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleRemoveExistingImage(idx);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            top: '2px',
+                            right: '2px',
+                            background: 'rgba(239, 68, 68, 0.9)',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: '18px',
+                            height: '18px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            padding: 0
+                          }}
+                          title="Remove image"
+                        >
+                          <X size={10} />
+                        </button>
+                      </div>
+                    ))}
+
+                    {/* Render newly added local images */}
+                    {imageFiles.map((file, idx) => (
+                      <div key={`new-${idx}`} className="product-media-thumb-wrap" style={{ position: 'relative', width: '65px', height: '65px', border: '1px solid #cbd5e1', borderRadius: '8px', overflow: 'hidden' }}>
+                        <img src={URL.createObjectURL(file)} alt="new preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleRemoveNewImage(idx);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            top: '2px',
+                            right: '2px',
+                            background: 'rgba(239, 68, 68, 0.9)',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: '18px',
+                            height: '18px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            padding: 0
+                          }}
+                          title="Remove image"
+                        >
+                          <X size={10} />
+                        </button>
+                      </div>
+                    ))}
+                    
                   </div>
-                  <span>Square images work best.</span>
-                </span>
-                <input id="product-images" type="file" accept="image/*" multiple onChange={handleImageChange} />
-              </label>
-              <label className="catalog-upload" htmlFor="product-video" style={{ marginTop: '12px' }}>
+
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      className="catalog-btn"
+                      style={{ fontSize: '11px', padding: '4px 8px', minHeight: 'auto', flex: 1 }}
+                      onClick={() => setShowImagePreview(true)}
+                    >
+                      <Eye size={12} /> Preview Large
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Upload trigger box (only shown if total images < 7) */}
+              {((formData.images?.length || 0) + imageFiles.length) < 7 ? (
+                <label className="catalog-upload" htmlFor="product-images" style={{ cursor: 'pointer' }}>
+                  <span className="catalog-upload__box" style={{ height: '60px', width: '60px' }}>
+                    <Upload size={18} />
+                  </span>
+                  <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <strong>Upload Images ({((formData.images?.length || 0) + imageFiles.length)}/7)</strong>
+                    <span style={{ fontSize: '11px', color: '#64748b' }}>Select 4 to 7 images.</span>
+                  </span>
+                  <input 
+                    id="product-images" 
+                    type="file" 
+                    accept="image/*" 
+                    multiple 
+                    onChange={handleImageChange} 
+                  />
+                </label>
+              ) : (
+                <div style={{ padding: '10px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
+                  Maximum limit of 7 images reached. Remove some to add others.
+                </div>
+              )}
+
+              <label className="catalog-upload" htmlFor="product-video" style={{ marginTop: '12px', cursor: 'pointer' }}>
                 <span className="catalog-upload__box" style={{ height: '180px' }}>
                   {formData.videoPreview ? (
                     <video src={formData.videoPreview} controls style={{ width: '100%', height: '100%' }} />
@@ -1101,11 +1308,11 @@ const ProductsForm = () => {
           </aside>
         </div>
 
-        <div className="catalog-actions product-form-actions">
-          <button type="submit" className="catalog-btn catalog-btn--primary" disabled={!availableSubcategories.length || isSaving}>
-            <Save size={16} /> {isSaving ? 'Saving...' : 'Save Product'}
+        <div className="catalog-actions product-form-actions" style={{ padding: '12px 20px', background: '#fff', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '10px' }}>
+          <button type="submit" className="catalog-btn catalog-btn--primary" disabled={isSaving} style={{ padding: '8px 16px', fontSize: '13px' }}>
+            <Save size={14} /> {isSaving ? 'Saving...' : 'Save Product'}
           </button>
-          <button type="button" className="catalog-btn" onClick={() => navigate('/admin/catalog/products')}>
+          <button type="button" className="catalog-btn" onClick={() => navigate('/admin/catalog/products')} style={{ padding: '8px 16px', fontSize: '13px', border: '1px solid #cbd5e1', backgroundColor: '#fff', color: '#64748b', cursor: 'pointer', borderRadius: '6px' }}>
             Cancel
           </button>
         </div>
@@ -1115,22 +1322,33 @@ const ProductsForm = () => {
         <div className="catalog-modal-overlay" onClick={() => setShowImagePreview(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div className="catalog-modal" onClick={e => e.stopPropagation()} style={{ background: '#fff', padding: '24px', borderRadius: '12px', width: '90%', maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto' }}>
             <div className="catalog-modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3>Image Previews ({imageFiles.length || (formData.images && formData.images.length) || 0})</h3>
+              <h3>Image Previews ({((formData.images?.length || 0) + imageFiles.length)})</h3>
               <button onClick={() => setShowImagePreview(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
             </div>
             <div className="catalog-modal-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
-               {imageFiles.length > 0 ? (
-                 imageFiles.map((file, idx) => (
-                   <img key={idx} src={URL.createObjectURL(file)} alt="preview" style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #eee' }} />
-                 ))
-               ) : (
-                 formData.images && formData.images.map((url, idx) => (
-                   <img key={idx} src={url} alt="saved preview" style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #eee' }} />
-                 ))
-               )}
+              {formData.images && formData.images.map((url, idx) => (
+                <div key={`modal-existing-${idx}`} style={{ position: 'relative' }}>
+                  <img src={url} alt="saved preview" style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #eee' }} />
+                  <span style={{ position: 'absolute', bottom: '6px', left: '6px', background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>Saved Image</span>
+                </div>
+              ))}
+              {imageFiles.map((file, idx) => (
+                <div key={`modal-new-${idx}`} style={{ position: 'relative' }}>
+                  <img src={URL.createObjectURL(file)} alt="new preview" style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #eee' }} />
+                  <span style={{ position: 'absolute', bottom: '6px', left: '6px', background: 'rgba(38, 54, 182, 0.8)', color: '#fff', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>New Upload</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
+      )}
+
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
       )}
     </div>
   );
