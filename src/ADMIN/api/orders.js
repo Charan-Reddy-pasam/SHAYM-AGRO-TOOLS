@@ -15,11 +15,25 @@ const toUrlEncoded = (obj) => {
     .join('&');
 };
 
+// Helper to extract array from dynamic API response structure
+const unwrapArray = (data) => {
+  if (Array.isArray(data)) return data;
+  if (!data) return [];
+  if (Array.isArray(data.orders)) return data.orders;
+  if (Array.isArray(data.data)) return data.data;
+  if (Array.isArray(data.value)) return data.value;
+  if (Array.isArray(data.$values)) return data.$values;
+  if (Array.isArray(data.Value)) return data.Value;
+  if (Array.isArray(data.items)) return data.items;
+  return [];
+};
+
 // GET /api/Orders  — fetch all orders
 export const getOrders = async () => {
   const response = await fetch(BASE_URL, { headers: DEFAULT_HEADERS });
   if (!response.ok) throw new Error(`Failed to fetch orders (${response.status})`);
-  return await response.json();
+  const data = await response.json();
+  return unwrapArray(data);
 };
 
 // GET /api/Orders/{id}  — fetch single order
@@ -79,7 +93,8 @@ export const deleteOrder = async (id) => {
 export const getOrdersTracking = async () => {
   const response = await fetch(`${BASE_URL}/tracking`, { headers: DEFAULT_HEADERS });
   if (!response.ok) throw new Error(`Failed to fetch tracking orders (${response.status})`);
-  return await response.json();
+  const data = await response.json();
+  return unwrapArray(data);
 };
 
 // GET /api/Orders/tracking/{id} — fetch tracking detail for single order
@@ -104,7 +119,8 @@ export const postOrderTracking = async (id, payload) => {
 export const getOrdersShipping = async () => {
   const response = await fetch(`${BASE_URL}/shipping`, { headers: DEFAULT_HEADERS });
   if (!response.ok) throw new Error(`Failed to fetch shipping orders (${response.status})`);
-  return await response.json();
+  const data = await response.json();
+  return unwrapArray(data);
 };
 
 // GET /api/Orders/shipping/{id} — fetch shipping details for single order
