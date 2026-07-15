@@ -5,11 +5,11 @@ import {
   RefreshCw, CheckCircle, AlertCircle, ArrowUpRight, Activity, Eye,
   Bell, BellOff
 } from 'lucide-react';
-import { getOrders, updateOrderPaymentStatus } from '../api/orders';
+import { getOrders, updateOrderStatus } from '../api/orders';
+import { Toast } from '../components/Toast';
 import './PaymentHistory.css';
 
 const BASE_PAYMENT_URL = 'https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Payment';
-const BASE_ORDERS_URL = 'https://wildlife-unwieldy-devotee.ngrok-free.dev/api/Orders';
 const HEADERS = {
   'ngrok-skip-browser-warning': 'true',
   'Accept': 'application/json',
@@ -111,15 +111,6 @@ const reconcileSmsOnServer = async (smsText) => {
   return await response.json();
 };
 
-const updateServerOrderStatus = async (orderId, status) => {
-  const response = await fetch(`${BASE_ORDERS_URL}/${orderId}/status`, {
-    method: 'PUT',
-    headers: HEADERS,
-    body: JSON.stringify({ status })
-  });
-  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-  return response;
-};
 
 const PaymentHistory = () => {
   const [activeTab, setActiveTab] = useState('payments-list');
@@ -225,11 +216,13 @@ const PaymentHistory = () => {
     setLoadingOrders(true);
     try {
       const ordersData = await getOrders();
-      setOrders(ordersData);
+      const ordersList = Array.isArray(ordersData) ? ordersData : (ordersData?.orders || ordersData?.data || ordersData?.value || []);
+      setOrders(ordersList);
       
       try {
         const verificationsData = await fetchManualVerifications(search);
-        setManualVerifications(verificationsData);
+        const verificationsList = Array.isArray(verificationsData) ? verificationsData : (verificationsData?.verifications || verificationsData?.data || verificationsData?.value || []);
+        setManualVerifications(verificationsList);
       } catch (e) {
         console.warn("Failed to load manual verifications from server:", e);
       }
@@ -244,6 +237,8 @@ const PaymentHistory = () => {
     const enabled = e.target.checked;
     setNotificationsEnabled(enabled);
     localStorage.setItem('shyam_agro_payment_notifications', enabled ? 'true' : 'false');
+    
+    showBannerStatus('success', `Payment alerts turned ${enabled ? 'ON' : 'OFF'}.`);
     
     if (enabled && Notification.permission !== 'granted') {
       const permission = await Notification.requestPermission();
@@ -263,28 +258,26 @@ const PaymentHistory = () => {
     let knownVerificationIds = new Set();
     
     fetchManualVerifications().then(data => {
-      if (Array.isArray(data)) {
-        data.forEach(item => knownVerificationIds.add(item.id));
-      }
+      const verificationsList = Array.isArray(data) ? data : (data?.verifications || data?.data || data?.value || []);
+      verificationsList.forEach(item => knownVerificationIds.add(item.id));
     }).catch(console.error);
 
     const interval = setInterval(async () => {
       try {
         const data = await fetchManualVerifications();
-        if (Array.isArray(data)) {
-          const pending = data.filter(item => item.verificationStatus === 'Pending');
-          for (const item of pending) {
-            if (!knownVerificationIds.has(item.id)) {
-              knownVerificationIds.add(item.id);
-              
-              if (Notification.permission === 'granted') {
-                new Notification('New Payment Submitted', {
-                  body: `Order #${item.orderId} from ${item.customerName} (₹${item.amountPaid.toLocaleString('en-IN')}) requires manual verification.`,
-                  icon: '/favicon.ico'
-                });
-              }
-              showBannerStatus('success', `New Payment Submitted! Order #${item.orderId} (₹${item.amountPaid.toLocaleString('en-IN')}) requires verification.`);
+        const verificationsList = Array.isArray(data) ? data : (data?.verifications || data?.data || data?.value || []);
+        const pending = verificationsList.filter(item => item.verificationStatus === 'Pending');
+        for (const item of pending) {
+          if (!knownVerificationIds.has(item.id)) {
+            knownVerificationIds.add(item.id);
+            
+            if (Notification.permission === 'granted') {
+              new Notification('New Payment Submitted', {
+                body: `Order #${item.orderId} from ${item.customerName} (₹${item.amountPaid.toLocaleString('en-IN')}) requires manual verification.`,
+                icon: '/favicon.ico'
+              });
             }
+            showBannerStatus('success', `New Payment Submitted! Order #${item.orderId} (₹${item.amountPaid.toLocaleString('en-IN')}) requires verification.`);
           }
         }
       } catch (err) {
@@ -330,30 +323,19 @@ const PaymentHistory = () => {
     return () => clearTimeout(delayDebounce);
   }, [bankDetails.ifscCode]);
 
-  // Handle manual verification approval
   const handleVerifyPayment = async (orderId, totalAmount, realOrderId, verificationRecordId) => {
     if (!window.confirm(`Verify payment of INR ${totalAmount.toLocaleString('en-IN')} for Order #${orderId}?`)) return;
     
     try {
-      let serverUpdated = false;
-      try {
-        await updateServerOrderStatus(realOrderId, 'Processing');
-        serverUpdated = true;
-      } catch (err) {
-        console.warn("Failed to update status on server, updating local only:", err);
-      }
+      // 1. Update order status to Processing on the server
+      await updateOrderStatus(realOrderId, 'Processing');
 
+      // 2. Approve manual verification record if present
       if (verificationRecordId) {
-        try {
-          await updateManualVerificationStatus(verificationRecordId, 'Approved');
-        } catch (err) {
-          console.warn("Failed to update verification record status on server:", err);
-        }
+        await updateManualVerificationStatus(verificationRecordId, 'Approved');
       }
-
-      // Custom handler updates local storage status and sets order status to Processing automatically
-      await updateOrderPaymentStatus(orderId, 'Paid', totalAmount);
-      showBannerStatus('success', `Payment for Order #${orderId} verified successfully.${serverUpdated ? ' Server order status updated to Processing.' : ' (Local Only)'}`);
+      
+      showBannerStatus('success', `Payment for Order #${orderId} verified successfully. Order status updated to Processing.`);
       loadOrdersList();
     } catch (e) {
       showBannerStatus('error', `Failed to verify payment: ${e.message}`);
@@ -365,24 +347,15 @@ const PaymentHistory = () => {
     if (!window.confirm(`Reject payment details for Order #${orderId}?`)) return;
     
     try {
-      let serverUpdated = false;
-      try {
-        await updateServerOrderStatus(realOrderId, 'Cancelled');
-        serverUpdated = true;
-      } catch (err) {
-        console.warn("Failed to update status on server, updating local only:", err);
-      }
+      // 1. Cancel order status on the server
+      await updateOrderStatus(realOrderId, 'Cancelled');
 
+      // 2. Reject manual verification record if present
       if (verificationRecordId) {
-        try {
-          await updateManualVerificationStatus(verificationRecordId, 'Rejected');
-        } catch (err) {
-          console.warn("Failed to update verification record status on server:", err);
-        }
+        await updateManualVerificationStatus(verificationRecordId, 'Rejected');
       }
-
-      await updateOrderPaymentStatus(orderId, 'Rejected');
-      showBannerStatus('success', `Payment for Order #${orderId} rejected.${serverUpdated ? ' Server order status updated to Cancelled.' : ' (Local Only)'}`);
+      
+      showBannerStatus('success', `Payment for Order #${orderId} rejected. Order status updated to Cancelled.`);
       loadOrdersList();
     } catch (e) {
       showBannerStatus('error', `Failed to reject payment: ${e.message}`);
@@ -521,13 +494,7 @@ const PaymentHistory = () => {
           message: response.message || `Successfully matched! Order #${response.orderId} (₹${response.parsedAmount}) was automatically verified and updated to "Processing".`
         });
         
-        if (response.orderId) {
-          try {
-            await updateOrderPaymentStatus(response.orderId, 'Paid', response.parsedAmount);
-          } catch (e) {
-            console.warn("Failed to update local order payment status:", e);
-          }
-        }
+
         
         loadOrdersList();
       } else {
@@ -593,11 +560,10 @@ const PaymentHistory = () => {
       if (matchedOrder) {
         const orderId = matchedOrder.id || matchedOrder.orderId;
         try {
-          updateServerOrderStatus(orderId, 'Processing');
+          await updateOrderStatus(orderId, 'Processing');
         } catch (serverErr) {
           console.warn("Failed to auto-verify order status on server:", serverErr);
         }
-        updateOrderPaymentStatus(orderId, 'Paid', amount);
         setSimulationResult({
           success: true,
           utr,
@@ -753,10 +719,11 @@ const PaymentHistory = () => {
       </div>
 
       {saveStatus.message && (
-        <div className={`simulator-result-alert ${saveStatus.type === 'success' ? 'success' : 'error'}`} style={{ marginBottom: '20px' }}>
-          {saveStatus.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
-          <span>{saveStatus.message}</span>
-        </div>
+        <Toast 
+          message={saveStatus.message} 
+          type={saveStatus.type === 'success' ? 'success' : saveStatus.type === 'error' ? 'error' : 'warning'} 
+          onClose={() => setSaveStatus({ type: '', message: '' })} 
+        />
       )}
 
       <div className="payment-card-body">

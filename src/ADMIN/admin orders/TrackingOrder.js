@@ -12,8 +12,8 @@ import {
   CheckCircle,
   AlertCircle
 } from 'lucide-react';
-import { getOrdersTracking, postOrderTracking, updateOrderStatus } from '../api/orders';
-import { OrderStatusBadge, formatCurrency } from './OrdersLedger';
+import { getOrdersTracking, getOrderTracking, postOrderTracking, updateOrderStatus } from '../api/orders';
+import { OrderStatusBadge, formatCurrency, mapStatus } from './OrdersLedger';
 import './adminOrders.css';
 
 const STATUS_DESCRIPTIONS = {
@@ -47,22 +47,23 @@ const TrackingOrder = () => {
   const [tempStatus, setTempStatus] = useState('');
   const [notesInput, setNotesInput] = useState('');
 
+  const [activeOrderDetails, setActiveOrderDetails] = useState(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+
   const loadOrders = async () => {
     try {
       setLoading(true);
       setError('');
       const data = await getOrdersTracking();
       const list = Array.isArray(data) ? data : (data.orders || data.data || []);
+      const mappedList = list.map(o => ({
+        ...o,
+        status: mapStatus(o.status)
+      }));
+      setOrders(mappedList);
       
-      // We only track verified success orders
-      const verifiedList = list.filter(o => 
-        ['paid', 'verified', 'success'].includes((o.paymentStatus || '').toLowerCase())
-      );
-      
-      setOrders(verifiedList);
-      
-      if (verifiedList.length > 0 && !selectedOrderId) {
-        setSelectedOrderId(verifiedList[0].id || verifiedList[0].orderId);
+      if (mappedList.length > 0 && !selectedOrderId) {
+        setSelectedOrderId(mappedList[0].id || mappedList[0].orderId);
       }
     } catch (err) {
       setError(err.message || 'Failed to fetch orders.');
@@ -76,6 +77,46 @@ const TrackingOrder = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Fetch full details when selectedOrderId changes
+  useEffect(() => {
+    if (!selectedOrderId) {
+      setActiveOrderDetails(null);
+      return;
+    }
+    let isMounted = true;
+    const loadDetails = async () => {
+      try {
+        setDetailsLoading(true);
+        const details = await getOrderTracking(selectedOrderId);
+        if (isMounted) {
+          const mappedDetails = {
+            ...details,
+            id: details.orderId,
+            status: mapStatus(details.currentStatus),
+            timeline: Array.isArray(details.timelineLogs) ? details.timelineLogs.map(t => ({
+              label: t.status,
+              date: `${t.date} ${t.time}`,
+              completed: true,
+              description: t.description
+            })) : []
+          };
+          setActiveOrderDetails(mappedDetails);
+          setTempStatus(mappedDetails.status);
+          setNotesInput('');
+          setUpdateMsg({ text: '', isError: false });
+        }
+      } catch (err) {
+        if (isMounted) {
+          setUpdateMsg({ text: `Failed to load tracking details: ${err.message}`, isError: true });
+        }
+      } finally {
+        if (isMounted) setDetailsLoading(false);
+      }
+    };
+    loadDetails();
+    return () => { isMounted = false; };
+  }, [selectedOrderId]);
+
   const filteredOrders = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return orders.filter(o => 
@@ -84,59 +125,37 @@ const TrackingOrder = () => {
     );
   }, [orders, searchTerm]);
 
-  const activeOrder = useMemo(() => {
-    return orders.find(o => String(o.id || o.orderId) === String(selectedOrderId)) || null;
-  }, [orders, selectedOrderId]);
-
-  // Sync edit state when active order changes
-  useEffect(() => {
-    if (activeOrder) {
-      setTempStatus(activeOrder.status || 'Processing');
-      setNotesInput('');
-      setUpdateMsg({ text: '', isError: false });
-    }
-  }, [activeOrder]);
-
   const handleUpdateStatus = async () => {
-    if (!activeOrder) return;
+    if (!selectedOrderId) return;
     setUpdating(true);
     setUpdateMsg({ text: '', isError: false });
     try {
-      // 1. Update order status in core API (updates server & local storage)
-      await updateOrderStatus(activeOrder.id, tempStatus);
+      // 1. Update order status in core API
+      await updateOrderStatus(selectedOrderId, tempStatus);
 
-      // Sync via tracking post API
-      await postOrderTracking(activeOrder.id, {
+      // Sync via tracking post API (JSON format)
+      await postOrderTracking(selectedOrderId, {
         status: tempStatus,
         description: notesInput || STATUS_DESCRIPTIONS[tempStatus] || ''
       });
 
-      // 2. Fetch updated orders list from local storage to update state
-      const local = localStorage.getItem('shyam_agro_orders');
-      if (local) {
-        const parsed = JSON.parse(local);
-        const matchIdx = parsed.findIndex(o => String(o.id || o.orderId) === String(activeOrder.id));
-        if (matchIdx !== -1) {
-          // Append new timeline entry
-          const timeline = parsed[matchIdx].timeline || [];
-          const statusText = `Status updated to ${tempStatus}`;
-          
-          if (!timeline.some(t => t.label === statusText)) {
-            timeline.push({
-              label: statusText,
-              date: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
-              completed: true,
-              description: notesInput || STATUS_DESCRIPTIONS[tempStatus] || ''
-            });
-            parsed[matchIdx].timeline = timeline;
-          }
-          
-          // Save back
-          localStorage.setItem('shyam_agro_orders', JSON.stringify(parsed));
-        }
-      }
-
       setUpdateMsg({ text: 'Order status updated and customer timeline refreshed!', isError: false });
+      
+      // Reload details
+      const details = await getOrderTracking(selectedOrderId);
+      const mappedDetails = {
+        ...details,
+        id: details.orderId,
+        status: mapStatus(details.currentStatus),
+        timeline: Array.isArray(details.timelineLogs) ? details.timelineLogs.map(t => ({
+          label: t.status,
+          date: `${t.date} ${t.time}`,
+          completed: true,
+          description: t.description
+        })) : []
+      };
+      setActiveOrderDetails(mappedDetails);
+      setNotesInput('');
       
       // Reload lists
       await loadOrders();
@@ -222,7 +241,11 @@ const TrackingOrder = () => {
         </div>
 
         {/* Right Side: Tracking Details & Status Form */}
-        {activeOrder ? (
+        {detailsLoading ? (
+          <div className="orders-card-table-wrap" style={{ padding: '32px', background: 'white', textAlign: 'center', color: '#64748b' }}>
+            Loading tracking details from API...
+          </div>
+        ) : activeOrderDetails ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             
             {/* Status Info Card */}
@@ -230,12 +253,12 @@ const TrackingOrder = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #f1f5f9', paddingBottom: '16px', marginBottom: '16px' }}>
                 <div>
                   <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Active Track</span>
-                  <h2 style={{ fontSize: '20px', fontWeight: 800, margin: '2px 0 0 0' }}>Order #{activeOrder.id}</h2>
+                  <h2 style={{ fontSize: '20px', fontWeight: 800, margin: '2px 0 0 0' }}>Order #{activeOrderDetails.id}</h2>
                   <span style={{ fontSize: '12px', color: '#475569', fontWeight: 500 }}>
-                    {activeOrder.customerName || activeOrder.customer} ({activeOrder.phone})
+                    {activeOrderDetails.customerName} ({activeOrderDetails.customerPhone || activeOrderDetails.phone})
                   </span>
                 </div>
-                <OrderStatusBadge status={activeOrder.status} />
+                <OrderStatusBadge status={activeOrderDetails.status} />
               </div>
 
               {/* Status Update Form */}
@@ -354,7 +377,7 @@ const TrackingOrder = () => {
               </h3>
 
               <div className="modern-timeline" style={{ paddingLeft: '20px' }}>
-                {activeOrder.timeline && activeOrder.timeline.map((event, idx) => (
+                {activeOrderDetails.timeline && activeOrderDetails.timeline.map((event, idx) => (
                   <div key={idx} className="timeline-event completed">
                     <span className="timeline-dot" />
                     <div className="timeline-info">
@@ -370,13 +393,13 @@ const TrackingOrder = () => {
                 ))}
                 
                 {/* Initial Timeline Items if empty */}
-                {(!activeOrder.timeline || activeOrder.timeline.length === 0) && (
+                {(!activeOrderDetails.timeline || activeOrderDetails.timeline.length === 0) && (
                   <>
                     <div className="timeline-event completed">
                       <span className="timeline-dot" />
                       <div className="timeline-info">
                         <span className="timeline-title">Order Placed</span>
-                        <span className="timeline-time">{activeOrder.orderDate?.slice(0, 10) || 'Date Placed'}</span>
+                        <span className="timeline-time">{activeOrderDetails.orderDate?.slice(0, 10) || 'Date Placed'}</span>
                       </div>
                     </div>
                     <div className="timeline-event completed">

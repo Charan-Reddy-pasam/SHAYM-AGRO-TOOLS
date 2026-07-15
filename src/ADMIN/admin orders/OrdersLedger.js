@@ -16,7 +16,7 @@ import {
   ShieldCheck,
   DollarSign
 } from 'lucide-react';
-import { getOrders } from '../api/orders';
+import { getOrders, getOrder } from '../api/orders';
 import { Pagination } from '../components/ActionButtons';
 import './adminOrders.css';
 
@@ -41,45 +41,75 @@ export const OrderStatusBadge = ({ status }) => {
   );
 };
 
+// Helper to parse amount safely
+export const parseAmount = (val) => {
+  if (typeof val === 'number') return val;
+  if (!val) return 0;
+  const num = parseFloat(String(val).replace(/[^0-9.]/g, ''));
+  return isNaN(num) ? 0 : num;
+};
+
+// Helper to map status
+export const mapStatus = (status) => {
+  if (!status) return 'Processing';
+  const s = status.toUpperCase();
+  if (s === 'PENDING' || s === 'PROCESSING') return 'Processing';
+  if (s === 'PACKED') return 'Packed';
+  if (s === 'SHIPPED' || s === 'DISPATCHED') return 'Dispatched';
+  if (s === 'COMPLETED') return 'Completed';
+  if (s === 'CANCELLED') return 'Cancelled';
+  return status;
+};
+
 // Helper to normalise order details
-const normaliseOrder = (o) => ({
-  id: o.id || o.orderId || '',
-  invoiceNo: o.invoiceNo || o.invoiceNumber || `INV-${o.id}`,
-  customer: o.customerName || o.customer || (o.customerDetails?.name) || 'Unknown',
-  customerType: o.customerType || (o.customerDetails?.type) || 'Farmer',
-  phone: o.phone || o.customerPhone || (o.customerDetails?.phone) || '',
-  email: o.email || o.customerEmail || (o.customerDetails?.email) || '',
-  date: o.orderDate ? o.orderDate.slice(0, 10) : (o.date ? o.date.slice(0, 10) : ''),
-  deliveryDate: o.deliveryDate ? o.deliveryDate.slice(0, 10) : (o.expectedDelivery || 'TBD'),
-  total: Number(o.totalAmount || o.finalAmount || o.total || 0),
-  paid: Number(o.paidAmount || o.paid || 0),
-  status: o.status || 'Processing',
-  paymentStatus: o.paymentStatus || 'Pending',
-  payMethod: o.paymentMethod || o.payMethod || '',
-  utr: o.utr || '',
-  logistics: o.logistics || o.logisticsPartner || '',
-  trackingNo: o.trackingNumber || o.trackingNo || '',
-  shippingAddress: o.shippingAddress || '',
-  billingAddress: o.billingAddress || '',
-  notes: o.notes || o.adminNotes || '',
-  // Packer / Shipper Details added
-  isPacked: !!o.isPacked,
-  packerName: o.packerName || '',
-  packerImage: o.packerImage || '',
-  packedDate: o.packedDate || '',
-  isShipped: !!o.isShipped,
-  shipperName: o.shipperName || '',
-  packageImage: o.packageImage || '',
-  shippedDate: o.shippedDate || '',
-  items: Array.isArray(o.items) ? o.items.map(i => ({
-    sku: i.sku || i.productSku || '',
-    name: i.name || i.productName || '',
-    category: i.category || '',
-    qty: Number(i.quantity || i.qty || 0),
-    price: Number(i.unitPrice || i.price || 0)
-  })) : [],
-  timeline: Array.isArray(o.timeline) ? o.timeline : []
-});
+const normaliseOrder = (o) => {
+  const totalVal = parseAmount(o.finalAmount || o.totalAmount || o.total);
+  const statusMapped = mapStatus(o.fulfillment || o.status);
+  
+  return {
+    id: o.id || o.orderId || '',
+    invoiceNo: o.invoiceNo || o.invoiceNumber || `INV-${o.id}`,
+    customer: o.customerName || o.customer || (o.customerDetails?.name) || 'Unknown',
+    customerType: o.customerType || o.customerRole || (o.customerDetails?.type) || 'Farmer',
+    phone: o.customerPhone || o.phone || (o.customerDetails?.phone) || '',
+    email: o.customerEmail || o.email || (o.customerDetails?.email) || '',
+    date: o.dateBooked ? o.dateBooked.slice(0, 10) : (o.orderDate ? o.orderDate.slice(0, 10) : (o.date ? o.date.slice(0, 10) : '')),
+    deliveryDate: o.deliveryDate ? o.deliveryDate.slice(0, 10) : (o.expectedDelivery || 'TBD'),
+    total: totalVal,
+    paid: o.paidAmount !== undefined ? parseAmount(o.paidAmount) : (o.paymentStatus === 'Paid' ? totalVal : 0),
+    status: statusMapped,
+    paymentStatus: o.paymentStatus || 'Pending',
+    payMethod: o.paymentMethod || o.payMethod || '',
+    utr: o.utr || '',
+    logistics: o.carrierName || o.logisticsPartner || o.logistics || '',
+    trackingNo: o.trackingNumber || o.trackingNo || '',
+    shippingAddress: o.shippingAddress || '',
+    billingAddress: o.billingAddress || o.shippingAddress || '',
+    notes: o.notes || o.adminNotes || '',
+    // Packer / Shipper Details added
+    isPacked: !!(o.packerName && o.packerName !== "Thank you for shopping with Shyam Agro Tools & Equipment!") || ['PACKED', 'DISPATCHED', 'SHIPPED', 'COMPLETED'].includes((o.fulfillment || o.status || '').toUpperCase()),
+    packerName: (o.packerName && o.packerName !== "Thank you for shopping with Shyam Agro Tools & Equipment!") ? o.packerName : '',
+    packerImage: o.packerPhotoUrl || o.packerImage || '',
+    packedDate: o.packedDate || (o.packerName ? 'Verified' : ''),
+    isShipped: !!(o.carrierName || o.trackingNumber) || ['DISPATCHED', 'SHIPPED', 'COMPLETED'].includes((o.fulfillment || o.status || '').toUpperCase()),
+    shipperName: o.shipperName || o.carrierName || '',
+    packageImage: o.packagePhotoUrl || o.packageImage || '',
+    shippedDate: o.shippedDate || (o.carrierName ? 'Verified' : ''),
+    items: Array.isArray(o.items) ? o.items.map(i => ({
+      sku: i.sku || i.productCode || '',
+      name: i.name || i.productName || '',
+      category: i.category || i.categoryName || '',
+      qty: Number(i.quantity || i.qty || 0),
+      price: Number(i.price || i.unitPrice || 0)
+    })) : [],
+    timeline: Array.isArray(o.timeline) ? o.timeline : (Array.isArray(o.timelineLogs) ? o.timelineLogs.map(t => ({
+      label: t.status,
+      date: `${t.date} ${t.time}`,
+      completed: true,
+      description: t.description
+    })) : [])
+  };
+};
 
 const OrdersLedger = () => {
   const [orders, setOrders] = useState([]);
@@ -400,7 +430,14 @@ const OrdersLedger = () => {
                 </td>
                 <td style={{ textAlign: 'center' }}>
                   <button
-                    onClick={() => setSelectedOrder(order)}
+                    onClick={async () => {
+                      try {
+                        const fullOrder = await getOrder(order.id);
+                        setSelectedOrder(normaliseOrder(fullOrder));
+                      } catch (err) {
+                        alert(`Failed to load order details: ${err.message}`);
+                      }
+                    }}
                     style={{
                       background: '#10b981',
                       color: 'white',

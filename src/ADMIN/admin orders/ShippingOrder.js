@@ -8,8 +8,8 @@ import {
   Compass,
   AlertCircle
 } from 'lucide-react';
-import { getOrdersShipping, packOrder, dispatchOrder, updateOrderStatus } from '../api/orders';
-import { OrderStatusBadge } from './OrdersLedger';
+import { getOrdersShipping, getOrderShipping, packOrder, dispatchOrder, updateOrderStatus } from '../api/orders';
+import { OrderStatusBadge, mapStatus } from './OrdersLedger';
 import './adminOrders.css';
 
 // Preset avatar list for packers
@@ -44,22 +44,19 @@ const ShippingOrder = () => {
 
   const [formMsg, setFormMsg] = useState({ text: '', isError: false });
 
+  const [activeOrderDetails, setActiveOrderDetails] = useState(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+
   const loadOrders = async () => {
     try {
       setLoading(true);
       setError('');
       const data = await getOrdersShipping();
       const list = Array.isArray(data) ? data : (data.orders || data.data || []);
+      setOrders(list);
       
-      // We only ship verified success orders
-      const verifiedList = list.filter(o => 
-        ['paid', 'verified', 'success'].includes((o.paymentStatus || '').toLowerCase())
-      );
-      
-      setOrders(verifiedList);
-      
-      if (verifiedList.length > 0 && !selectedOrderId) {
-        setSelectedOrderId(verifiedList[0].id || verifiedList[0].orderId);
+      if (list.length > 0 && !selectedOrderId) {
+        setSelectedOrderId(list[0].id || list[0].orderId);
       }
     } catch (err) {
       setError(err.message || 'Failed to load shipping ledger.');
@@ -73,6 +70,62 @@ const ShippingOrder = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Fetch full details when selectedOrderId changes
+  useEffect(() => {
+    if (!selectedOrderId) {
+      setActiveOrderDetails(null);
+      return;
+    }
+    let isMounted = true;
+    const loadDetails = async () => {
+      try {
+        setDetailsLoading(true);
+        const details = await getOrderShipping(selectedOrderId);
+        if (isMounted) {
+          const statusUpper = String(details.currentStatus || '').toUpperCase();
+          const isPacked = ['TO BE SHIPPED', 'SHIPPED', 'DISPATCHED', 'PACKED'].includes(statusUpper);
+          const isShipped = ['SHIPPED', 'DISPATCHED', 'COMPLETED'].includes(statusUpper);
+
+          const mappedDetails = {
+            ...details,
+            id: details.orderId,
+            status: mapStatus(details.currentStatus),
+            isPacked,
+            isShipped,
+            destination: details.destination || 'Self Pickup',
+            packerName: (details.packerName && details.packerName !== "Thank you for shopping with Shyam Agro Tools & Equipment!") ? details.packerName : '',
+            packerImage: details.packerPhotoUrl || '',
+            shipperName: details.shipperName || details.carrierName || '',
+            packageImage: details.packagePhotoUrl || '',
+            logistics: details.carrierName || '',
+            trackingNo: details.trackingNumber || '',
+            items: Array.isArray(details.packageContent) ? details.packageContent.map(i => ({
+              name: i.productName || '',
+              sku: i.productCode || '',
+              qty: i.quantity || 0
+            })) : []
+          };
+          setActiveOrderDetails(mappedDetails);
+          setPackerName(mappedDetails.packerName || '');
+          setPackerImage(mappedDetails.packerImage || '');
+          setShipperName(mappedDetails.shipperName || '');
+          setPackageImage(mappedDetails.packageImage || '');
+          setLogisticsName(mappedDetails.logistics || 'Delhivery');
+          setTrackingNo(mappedDetails.trackingNo || '');
+          setFormMsg({ text: '', isError: false });
+        }
+      } catch (err) {
+        if (isMounted) {
+          setFormMsg({ text: `Failed to load shipping details: ${err.message}`, isError: true });
+        }
+      } finally {
+        if (isMounted) setDetailsLoading(false);
+      }
+    };
+    loadDetails();
+    return () => { isMounted = false; };
+  }, [selectedOrderId]);
+
   const filteredOrders = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return orders.filter(o => 
@@ -80,10 +133,6 @@ const ShippingOrder = () => {
       (o.customerName || o.customer || '').toLowerCase().includes(q)
     );
   }, [orders, searchTerm]);
-
-  const activeOrder = useMemo(() => {
-    return orders.find(o => String(o.id || o.orderId) === String(selectedOrderId)) || null;
-  }, [orders, selectedOrderId]);
 
   // Handle file uploads (converts image files to Base64)
   const handleImageFileChange = (e, targetType) => {
@@ -106,70 +155,54 @@ const ShippingOrder = () => {
     reader.readAsDataURL(file);
   };
 
-  // Triggered when an order is selected
-  useEffect(() => {
-    if (activeOrder) {
-      // Pre-fill if already packed
-      setPackerName(activeOrder.packerName || '');
-      setPackerImage(activeOrder.packerImage || '');
-      
-      // Pre-fill if already shipped
-      setShipperName(activeOrder.shipperName || '');
-      setPackageImage(activeOrder.packageImage || '');
-      setLogisticsName(activeOrder.logistics || 'Delhivery');
-      setTrackingNo(activeOrder.trackingNo || '');
-
-      setFormMsg({ text: '', isError: false });
-    }
-  }, [activeOrder]);
-
   // Mark as Packed
   const handleMarkPacked = async () => {
-    if (!activeOrder) return;
+    if (!selectedOrderId) return;
     if (!packerName.trim()) {
       setFormMsg({ text: 'Packer name is required.', isError: true });
       return;
     }
 
     try {
-      const local = localStorage.getItem('shyam_agro_orders');
-      if (local) {
-        const parsed = JSON.parse(local);
-        const idx = parsed.findIndex(o => String(o.id || o.orderId) === String(activeOrder.id));
-        if (idx !== -1) {
-          const nowStr = new Date().toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-          
-          parsed[idx].isPacked = true;
-          parsed[idx].packerName = packerName;
-          parsed[idx].packerImage = packerImage || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=60'; // fallback avatar
-          parsed[idx].packedDate = nowStr;
-          parsed[idx].status = 'Packed';
+      // Sync via pack API (url encoded)
+      await packOrder(selectedOrderId, {
+        packerName,
+        packerPhotoUrl: packerImage || ''
+      });
 
-          // Timeline Log
-          const timeline = parsed[idx].timeline || [];
-          timeline.push({
-            label: 'Items Packed',
-            date: nowStr,
-            completed: true,
-            description: `Quality checked and packed by ${packerName}`
-          });
-          parsed[idx].timeline = timeline;
+      // Sync via status update
+      await updateOrderStatus(selectedOrderId, 'Packed');
 
-          localStorage.setItem('shyam_agro_orders', JSON.stringify(parsed));
-          
-          // Sync via order status API
-          await updateOrderStatus(activeOrder.id, 'Packed');
-          
-          // Sync via pack API
-          await packOrder(activeOrder.id, {
-            packerName,
-            packerImage: packerImage || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=60'
-          });
+      setFormMsg({ text: `Order marked as PACKED by ${packerName}!`, isError: false });
 
-          setFormMsg({ text: `Order marked as PACKED by ${packerName}!`, isError: false });
-          await loadOrders();
-        }
-      }
+      // Reload details
+      const details = await getOrderShipping(selectedOrderId);
+      const statusUpper = String(details.currentStatus || '').toUpperCase();
+      const isPacked = ['TO BE SHIPPED', 'SHIPPED', 'DISPATCHED', 'PACKED'].includes(statusUpper);
+      const isShipped = ['SHIPPED', 'DISPATCHED', 'COMPLETED'].includes(statusUpper);
+      const mappedDetails = {
+        ...details,
+        id: details.orderId,
+        status: mapStatus(details.currentStatus),
+        isPacked,
+        isShipped,
+        destination: details.destination || 'Self Pickup',
+        packerName: (details.packerName && details.packerName !== "Thank you for shopping with Shyam Agro Tools & Equipment!") ? details.packerName : '',
+        packerImage: details.packerPhotoUrl || '',
+        shipperName: details.shipperName || details.carrierName || '',
+        packageImage: details.packagePhotoUrl || '',
+        logistics: details.carrierName || '',
+        trackingNo: details.trackingNumber || '',
+        items: Array.isArray(details.packageContent) ? details.packageContent.map(i => ({
+          name: i.productName || '',
+          sku: i.productCode || '',
+          qty: i.quantity || 0
+        })) : []
+      };
+      setActiveOrderDetails(mappedDetails);
+      
+      // Reload lists
+      await loadOrders();
     } catch (e) {
       setFormMsg({ text: e.message || 'Error updating packing details.', isError: true });
     }
@@ -177,7 +210,7 @@ const ShippingOrder = () => {
 
   // Mark as Shipped
   const handleMarkShipped = async () => {
-    if (!activeOrder) return;
+    if (!selectedOrderId) return;
     if (!shipperName.trim()) {
       setFormMsg({ text: 'Shipper name is required.', isError: true });
       return;
@@ -192,48 +225,47 @@ const ShippingOrder = () => {
     }
 
     try {
-      const local = localStorage.getItem('shyam_agro_orders');
-      if (local) {
-        const parsed = JSON.parse(local);
-        const idx = parsed.findIndex(o => String(o.id || o.orderId) === String(activeOrder.id));
-        if (idx !== -1) {
-          const nowStr = new Date().toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-          
-          parsed[idx].isShipped = true;
-          parsed[idx].shipperName = shipperName;
-          parsed[idx].packageImage = packageImage || 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=150&auto=format&fit=crop&q=60'; // fallback pkg
-          parsed[idx].shippedDate = nowStr;
-          parsed[idx].logistics = logisticsName;
-          parsed[idx].trackingNo = trackingNo;
-          parsed[idx].status = 'Dispatched';
+      // Sync via dispatch API (url encoded)
+      await dispatchOrder(selectedOrderId, {
+        shipperName,
+        packagePhotoUrl: packageImage || '',
+        carrierName: logisticsName,
+        trackingNumber: trackingNo
+      });
 
-          // Timeline Log
-          const timeline = parsed[idx].timeline || [];
-          timeline.push({
-            label: 'Order Dispatched / Shipped',
-            date: nowStr,
-            completed: true,
-            description: `Package handed off to ${logisticsName} (Tracking No: ${trackingNo}) by shipper ${shipperName}`
-          });
-          parsed[idx].timeline = timeline;
+      // Sync via status update
+      await updateOrderStatus(selectedOrderId, 'Dispatched');
 
-          localStorage.setItem('shyam_agro_orders', JSON.stringify(parsed));
-          
-          // Sync via order status API
-          await updateOrderStatus(activeOrder.id, 'Dispatched');
+      setFormMsg({ text: `Order marked as SHIPPED via ${logisticsName}! Tracking: ${trackingNo}`, isError: false });
 
-          // Sync via dispatch API
-          await dispatchOrder(activeOrder.id, {
-            shipperName,
-            packageImage: packageImage || 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=150&auto=format&fit=crop&q=60',
-            logistics: logisticsName,
-            trackingNo
-          });
+      // Reload details
+      const details = await getOrderShipping(selectedOrderId);
+      const statusUpper = String(details.currentStatus || '').toUpperCase();
+      const isPacked = ['TO BE SHIPPED', 'SHIPPED', 'DISPATCHED', 'PACKED'].includes(statusUpper);
+      const isShipped = ['SHIPPED', 'DISPATCHED', 'COMPLETED'].includes(statusUpper);
+      const mappedDetails = {
+        ...details,
+        id: details.orderId,
+        status: mapStatus(details.currentStatus),
+        isPacked,
+        isShipped,
+        destination: details.destination || 'Self Pickup',
+        packerName: (details.packerName && details.packerName !== "Thank you for shopping with Shyam Agro Tools & Equipment!") ? details.packerName : '',
+        packerImage: details.packerPhotoUrl || '',
+        shipperName: details.shipperName || details.carrierName || '',
+        packageImage: details.packagePhotoUrl || '',
+        logistics: details.carrierName || '',
+        trackingNo: details.trackingNumber || '',
+        items: Array.isArray(details.packageContent) ? details.packageContent.map(i => ({
+          name: i.productName || '',
+          sku: i.productCode || '',
+          qty: i.quantity || 0
+        })) : []
+      };
+      setActiveOrderDetails(mappedDetails);
 
-          setFormMsg({ text: `Order marked as SHIPPED via ${logisticsName}! Tracking: ${trackingNo}`, isError: false });
-          await loadOrders();
-        }
-      }
+      // Reload lists
+      await loadOrders();
     } catch (e) {
       setFormMsg({ text: e.message || 'Error updating dispatch status.', isError: true });
     }
@@ -284,10 +316,11 @@ const ShippingOrder = () => {
               let stepLabel = 'To be Packed';
               let stepStyle = { background: '#fef3c7', color: '#d97706', border: '1px solid #fde68a' };
               
-              if (o.isPacked && !o.isShipped) {
+              const statusUpper = String(o.status || '').toUpperCase();
+              if (statusUpper === 'TO BE SHIPPED' || statusUpper === 'PACKED') {
                 stepLabel = 'To be Shipped';
                 stepStyle = { background: '#e0e7ff', color: '#4f46e5', border: '1px solid #c7d2fe' };
-              } else if (o.isShipped) {
+              } else if (statusUpper === 'SHIPPED' || statusUpper === 'DISPATCHED' || statusUpper === 'COMPLETED') {
                 stepLabel = 'Shipped';
                 stepStyle = { background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0' };
               }
@@ -302,7 +335,7 @@ const ShippingOrder = () => {
                   <div>
                     <strong style={{ fontSize: '13px', display: 'block', color: '#1e293b' }}>Order #{o.id}</strong>
                     <span style={{ fontSize: '11px', color: '#64748b', display: 'block', marginTop: '2px' }}>
-                      {o.customer || 'Unknown'} • {o.items?.length || 0} items
+                      {o.customerName || o.customer || 'Unknown'} • {o.itemsCount || (o.items?.length ? `${o.items.length} items` : '0 items')}
                     </span>
                   </div>
                   <span
@@ -329,19 +362,23 @@ const ShippingOrder = () => {
         </div>
 
         {/* Right Side: Order Fulfillment Action Panel */}
-        {activeOrder ? (
+        {detailsLoading ? (
+          <div className="orders-card-table-wrap" style={{ padding: '32px', background: 'white', textAlign: 'center', color: '#64748b' }}>
+            Loading shipping details from API...
+          </div>
+        ) : activeOrderDetails ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             
             {/* Order Metadata and Item Details Card */}
             <div className="orders-card-table-wrap" style={{ padding: '20px', background: 'white' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px', marginBottom: '12px' }}>
                 <div>
-                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0 }}>Fulfillment Details • #{activeOrder.id}</h2>
+                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0 }}>Fulfillment Details • #{activeOrderDetails.id}</h2>
                   <span style={{ fontSize: '12px', color: '#64748b' }}>
-                    Customer: <strong>{activeOrder.customer}</strong> • Destination: {activeOrder.shippingAddress || 'Self Pickup'}
+                    Customer: <strong>{activeOrderDetails.customerName}</strong> • Destination: {activeOrderDetails.destination}
                   </span>
                 </div>
-                <OrderStatusBadge status={activeOrder.status} />
+                <OrderStatusBadge status={activeOrderDetails.status} />
               </div>
 
               {/* Items Summary list */}
@@ -350,7 +387,7 @@ const ShippingOrder = () => {
                   Package Content
                 </span>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {activeOrder.items?.map((item, idx) => (
+                  {activeOrderDetails.items?.map((item, idx) => (
                     <div key={idx} style={{ display: 'flex', justify: 'space-between', fontSize: '12px', background: '#f8fafc', padding: '6px 10px', borderRadius: '6px' }}>
                       <span style={{ fontWeight: 600, color: '#334155' }}>
                         {item.name} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({item.sku})</span>
@@ -369,7 +406,7 @@ const ShippingOrder = () => {
                   <Package size={18} style={{ color: '#d97706' }} />
                   Step 1: Packing & Preparation
                 </h3>
-                {activeOrder.isPacked ? (
+                {activeOrderDetails.isPacked ? (
                   <span style={{ fontSize: '11px', fontWeight: 700, color: '#166534', background: '#dcfce7', padding: '2px 8px', borderRadius: '6px', textTransform: 'uppercase' }}>
                     Packed Successfully
                   </span>
@@ -380,20 +417,20 @@ const ShippingOrder = () => {
                 )}
               </div>
 
-              {activeOrder.isPacked ? (
+              {activeOrderDetails.isPacked ? (
                 /* Packed Info Panel */
                 <div className="tracking-user-profile" style={{ padding: '12px', background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-                  {activeOrder.packerImage ? (
-                    <img className="tracking-user-avatar" src={activeOrder.packerImage} alt={activeOrder.packerName} style={{ width: '48px', height: '48px' }} />
+                  {activeOrderDetails.packerImage ? (
+                    <img className="tracking-user-avatar" src={activeOrderDetails.packerImage} alt={activeOrderDetails.packerName} style={{ width: '48px', height: '48px' }} />
                   ) : (
                     <div className="tracking-user-avatar" style={{ width: '48px', height: '48px', background: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 700 }}>
-                      {activeOrder.packerName?.slice(0, 2).toUpperCase()}
+                      {activeOrderDetails.packerName ? activeOrderDetails.packerName.slice(0, 2).toUpperCase() : 'PK'}
                     </div>
                   )}
                   <div className="tracking-user-details">
                     <span>Assigned Packer</span>
-                    <strong style={{ fontSize: '14px', color: '#166534' }}>{activeOrder.packerName}</strong>
-                    <span style={{ marginTop: '2px' }}>Packed date: {activeOrder.packedDate}</span>
+                    <strong style={{ fontSize: '14px', color: '#166534' }}>{activeOrderDetails.packerName || 'Self / Packer'}</strong>
+                    <span style={{ marginTop: '2px' }}>Packed date: {activeOrderDetails.packedDate || 'Verified'}</span>
                   </div>
                 </div>
               ) : (
@@ -482,7 +519,7 @@ const ShippingOrder = () => {
                   <Truck size={18} style={{ color: '#4f46e5' }} />
                   Step 2: Logistics Handover & Shipping
                 </h3>
-                {activeOrder.isShipped ? (
+                {activeOrderDetails.isShipped ? (
                   <span style={{ fontSize: '11px', fontWeight: 700, color: '#4338ca', background: '#e0e7ff', padding: '2px 8px', borderRadius: '6px', textTransform: 'uppercase' }}>
                     Shipped & In Transit
                   </span>
@@ -491,12 +528,12 @@ const ShippingOrder = () => {
                     style={{
                       fontSize: '11px',
                       fontWeight: 700,
-                      color: activeOrder.isPacked ? '#4b5563' : '#9ca3af',
-                      background: activeOrder.isPacked ? '#f3f4f6' : '#f9fafb',
+                      color: activeOrderDetails.isPacked ? '#4b5563' : '#9ca3af',
+                      background: activeOrderDetails.isPacked ? '#f3f4f6' : '#f9fafb',
                       padding: '2px 8px',
                       borderRadius: '6px',
                       textTransform: 'uppercase',
-                      border: activeOrder.isPacked ? '1px solid #e5e7eb' : '1px solid #f3f4f6'
+                      border: activeOrderDetails.isPacked ? '1px solid #e5e7eb' : '1px solid #f3f4f6'
                     }}
                   >
                     To be Shipped
@@ -504,31 +541,31 @@ const ShippingOrder = () => {
                 )}
               </div>
 
-              {!activeOrder.isPacked ? (
+              {!activeOrderDetails.isPacked ? (
                 /* Packaging block alert */
                 <div style={{ padding: '14px', borderRadius: '10px', background: '#f9fafb', border: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', fontSize: '12px' }}>
                   <AlertCircle size={16} />
                   <span>Please complete <strong>Step 1: Packing & Preparation</strong> before registering logistics dispatch details.</span>
                 </div>
-              ) : activeOrder.isShipped ? (
+              ) : activeOrderDetails.isShipped ? (
                 /* Shipped Info Panel */
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div className="tracking-user-profile" style={{ padding: '12px', background: '#e0e7ff', border: '1px solid #c7d2fe' }}>
                     <div className="tracking-user-details" style={{ width: '100%' }}>
                       <span>Logistics Handover Details</span>
                       <strong style={{ fontSize: '14px', color: '#4338ca', display: 'flex', justify: 'space-between', alignItems: 'center' }}>
-                        <span>Carrier: {activeOrder.logistics}</span>
-                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>Shipper: {activeOrder.shipperName}</span>
+                        <span>Carrier: {activeOrderDetails.logistics}</span>
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>Shipper: {activeOrderDetails.shipperName}</span>
                       </strong>
-                      <span style={{ marginTop: '4px', fontFamily: 'monospace' }}>Waybill Tracking Reference: {activeOrder.trackingNo}</span>
-                      <span>Dispatched on: {activeOrder.shippedDate}</span>
+                      <span style={{ marginTop: '4px', fontFamily: 'monospace' }}>Waybill Tracking Reference: {activeOrderDetails.trackingNo}</span>
+                      <span>Dispatched on: {activeOrderDetails.shippedDate || 'Verified'}</span>
                     </div>
                   </div>
 
-                  {activeOrder.packageImage && (
+                  {activeOrderDetails.packageImage && (
                     <div>
                       <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, display: 'block' }}>Package Dispatch Photograph</span>
-                      <img className="tracking-package-img" src={activeOrder.packageImage} alt="Package photograph" style={{ maxWidth: '280px', maxHeight: '180px' }} />
+                      <img className="tracking-package-img" src={activeOrderDetails.packageImage} alt="Package photograph" style={{ maxWidth: '280px', maxHeight: '180px' }} />
                     </div>
                   )}
                 </div>
